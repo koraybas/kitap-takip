@@ -1,75 +1,74 @@
 import streamlit as st
-import sqlite3
 import requests
 
-# Sayfa Ayarları
-st.set_page_config(page_title="Kitaplığım", page_icon="📚")
+# 1. Sayfa Ayarları
+st.set_page_config(page_title="Kitaplığım", page_icon="📚", layout="centered")
 
-# Veritabanı
-def get_db():
-    conn = sqlite3.connect('kutuphanem.db', check_same_thread=False)
-    conn.row_factory = sqlite3.Row
-    return conn
+# 2. Veri Saklama Alanı (Hata vermeyen hafıza yöntemi)
+if 'kitap_listesi' not in st.session_state:
+    st.session_state.kitap_listesi = []
 
-# Tablo oluşturma
-with get_db() as conn:
-    conn.execute('CREATE TABLE IF NOT EXISTS kitaplar (isim TEXT, yazar TEXT, kapak TEXT)')
-    conn.commit()
-
-# --- GÜVENLİ VERİ ÇEKME ---
-def fetch_book(title):
-    default_cover = "https://via.placeholder.com/150x220?text=Kapak+Yok"
-    if not title: return None
-    
+# 3. Google Books API (Gelişmiş Hata Ayıklamalı)
+def kitap_ara(kitap_adi):
+    default_img = "https://via.placeholder.com/150x220?text=Resim+Yok"
     try:
-        url = f"https://www.googleapis.com/books/v1/volumes?q={title.strip()}"
-        res = requests.get(url, timeout=10).json()
+        query = kitap_adi.replace(' ', '+')
+        url = f"https://www.googleapis.com/books/v1/volumes?q={query}"
+        response = requests.get(url, timeout=10).json()
         
-        # EĞER HİÇBİR ŞEY BULUNAMAZSA (Index Error Engelleyici)
-        if "items" not in res or not res["items"]:
-            return "Bilinmiyor", default_cover
+        # Eğer sonuç yoksa hata vermek yerine boş dön
+        if "items" not in response:
+            return "Bilinmiyor", default_img
             
-        # İlk sonucu güvenli bir şekilde al
-        volume_info = res.get("items", [{}])[0].get("volumeInfo", {})
-        author = volume_info.get("authors", ["Bilinmiyor"])[0]
-        cover = volume_info.get("imageLinks", {}).get("thumbnail", default_cover)
-        
-        return author, cover.replace("http://", "https://")
+        info = response["items"][0]["volumeInfo"]
+        yazar = info.get("authors", ["Bilinmiyor"])[0]
+        kapak = info.get("imageLinks", {}).get("thumbnail", default_img).replace("http://", "https://")
+        return yazar, kapak
     except Exception:
-        return "Bilinmiyor", default_cover
+        return "Bilinmiyor", default_img
 
-# Arayüz
-st.title("📚 Dijital Kütüphanem")
-t1, t2 = st.tabs(["📋 Listem", "➕ Ekle"])
+# 4. Arayüz Tasarımı
+st.title("📚 Dijital Kitaplığım")
 
-with t2:
-    with st.form("ekle_form", clear_on_submit=True):
-        kitap = st.text_input("Kitap İsmi")
-        submit = st.form_submit_button("Kaydet")
+# Menü Sekmeleri
+sekme_liste, sekme_ekle = st.tabs(["📋 Listem", "➕ Kitap Ekle"])
+
+with sekme_ekle:
+    st.subheader("Yeni Kitap Kaydı")
+    with st.form("ekleme_formu", clear_on_submit=True):
+        input_isim = st.text_input("Kitap İsmi")
+        submit_btn = st.form_submit_button("Kütüphaneye Ekle")
         
-        if submit and kitap:
-            data = fetch_book(kitap)
-            if data:
-                yazar, kapak = data
-                with get_db() as conn:
-                    conn.execute("INSERT INTO kitaplar VALUES (?, ?, ?)", (kitap, yazar, kapak))
-                    conn.commit()
-                st.success(f"{kitap} eklendi!")
+        if submit_btn and input_isim:
+            yazar, kapak = kitap_ara(input_isim)
+            # Veriyi hafızaya ekle
+            st.session_state.kitap_listesi.append({
+                "isim": input_isim,
+                "yazar": yazar,
+                "kapak": kapak
+            })
+            st.success(f"'{input_isim}' başarıyla listeye alındı!")
 
-with t1:
-    with get_db() as conn:
-        books = conn.execute("SELECT * FROM kitaplar ORDER BY rowid DESC").fetchall()
-    
-    if not books:
-        st.info("Kütüphane boş.")
+with sekme_liste:
+    if not st.session_state.kitap_listesi:
+        st.info("Listeniz şu an boş. Kitap ekleyerek başlayabilirsiniz.")
     else:
-        for b in books:
-            st.markdown(f"""
-                <div style="display: flex; align-items: center; border: 1px solid #ddd; padding: 10px; border-radius: 10px; margin-bottom: 10px;">
-                    <img src="{b['kapak']}" style="width: 60px; height: 90px; border-radius: 5px; margin-right: 15px;">
-                    <div>
-                        <h4 style="margin:0;">{b['isim']}</h4>
-                        <p style="margin:0; color: gray;">{b['yazar']}</p>
-                    </div>
-                </div>
-            """, unsafe_allow_html=True)
+        # Kitapları listele
+        for index, kitap in enumerate(reversed(st.session_state.kitap_listesi)):
+            col_img, col_text, col_del = st.columns([1, 3, 1])
+            
+            with col_img:
+                st.image(kitap["kapak"], width=80)
+            
+            with col_text:
+                st.subheader(kitap["isim"])
+                st.caption(f"Yazar: {kitap['yazar']}")
+            
+            with col_del:
+                # Silme butonu ekledik
+                if st.button("Sil", key=f"del_{index}"):
+                    # Tersten dizdiğimiz için gerçek indexi hesapla
+                    real_index = len(st.session_state.kitap_listesi) - 1 - index
+                    st.session_state.kitap_listesi.pop(real_index)
+                    st.rerun()
+            st.divider()
