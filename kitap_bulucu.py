@@ -2,75 +2,74 @@ import streamlit as st
 import sqlite3
 import requests
 
-# 1. Sayfa Ayarları
-st.set_page_config(page_title="Kitaplığım", page_icon="📚", layout="centered")
+# Sayfa Ayarları
+st.set_page_config(page_title="Kitaplığım", page_icon="📚")
 
-# 2. Veritabanı Yönetimi
+# Veritabanı
 def get_db():
     conn = sqlite3.connect('kutuphanem.db', check_same_thread=False)
     conn.row_factory = sqlite3.Row
     return conn
 
-def init_db():
-    conn = get_db()
+# Tablo oluşturma
+with get_db() as conn:
     conn.execute('CREATE TABLE IF NOT EXISTS kitaplar (isim TEXT, yazar TEXT, kapak TEXT)')
     conn.commit()
-    conn.close()
 
-init_db()
-
-# 3. Gelişmiş Google Books API (Index Error Engelleyici)
+# --- GÜVENLİ VERİ ÇEKME ---
 def fetch_book(title):
-    no_cover = "https://via.placeholder.com/150x220?text=Kapak+Yok"
+    default_cover = "https://via.placeholder.com/150x220?text=Kapak+Yok"
+    if not title: return None
+    
     try:
-        url = f"https://www.googleapis.com/books/v1/volumes?q={title}"
-        res = requests.get(url, timeout=5).json()
+        url = f"https://www.googleapis.com/books/v1/volumes?q={title.strip()}"
+        res = requests.get(url, timeout=10).json()
         
-        # Eğer sonuç listesi boşsa (Index Error'un sebebi burasıdır)
-        if "items" not in res or len(res["items"]) == 0:
-            return "Bilinmiyor", no_cover
+        # EĞER HİÇBİR ŞEY BULUNAMAZSA (Index Error Engelleyici)
+        if "items" not in res or not res["items"]:
+            return "Bilinmiyor", default_cover
             
-        info = res["items"][0]["volumeInfo"]
-        author = info.get("authors", ["Bilinmiyor"])[0]
-        cover = info.get("imageLinks", {}).get("thumbnail", no_cover)
-        return author, cover.replace("http://", "https://")
-    except Exception as e:
-        return "Hata", no_cover
-
-# 4. Arayüz
-st.title("📚 Dijital Kütüphanem")
-
-tab1, tab2 = st.tabs(["📖 Kütüphanem", "➕ Yeni Kitap"])
-
-with tab2:
-    st.subheader("Kitap Ekle")
-    with st.form("add_form", clear_on_submit=True):
-        kitap_adi = st.text_input("Kitap İsmi")
-        submit = st.form_submit_button("Sisteme Kaydet")
+        # İlk sonucu güvenli bir şekilde al
+        volume_info = res.get("items", [{}])[0].get("volumeInfo", {})
+        author = volume_info.get("authors", ["Bilinmiyor"])[0]
+        cover = volume_info.get("imageLinks", {}).get("thumbnail", default_cover)
         
-        if submit and kitap_adi:
-            yazar, kapak = fetch_book(kitap_adi)
-            conn = get_db()
-            conn.execute("INSERT INTO kitaplar (isim, yazar, kapak) VALUES (?, ?, ?)", (kitap_adi, yazar, kapak))
-            conn.commit()
-            conn.close()
-            st.success(f"'{kitap_adi}' kaydedildi!")
+        return author, cover.replace("http://", "https://")
+    except Exception:
+        return "Bilinmiyor", default_cover
 
-with tab1:
-    conn = get_db()
-    books = conn.execute("SELECT * FROM kitaplar ORDER BY rowid DESC").fetchall()
-    conn.close()
+# Arayüz
+st.title("📚 Dijital Kütüphanem")
+t1, t2 = st.tabs(["📋 Listem", "➕ Ekle"])
 
+with t2:
+    with st.form("ekle_form", clear_on_submit=True):
+        kitap = st.text_input("Kitap İsmi")
+        submit = st.form_submit_button("Kaydet")
+        
+        if submit and kitap:
+            data = fetch_book(kitap)
+            if data:
+                yazar, kapak = data
+                with get_db() as conn:
+                    conn.execute("INSERT INTO kitaplar VALUES (?, ?, ?)", (kitap, yazar, kapak))
+                    conn.commit()
+                st.success(f"{kitap} eklendi!")
+
+with t1:
+    with get_db() as conn:
+        books = conn.execute("SELECT * FROM kitaplar ORDER BY rowid DESC").fetchall()
+    
     if not books:
-        st.info("Kütüphaneniz henüz boş.")
+        st.info("Kütüphane boş.")
     else:
-        for book in books:
+        for b in books:
             st.markdown(f"""
-                <div style="display: flex; align-items: center; border: 1px solid #eee; padding: 12px; border-radius: 12px; margin-bottom: 12px; background-color: #fff; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">
-                    <img src="{book['kapak']}" style="width: 70px; height: 100px; object-fit: cover; border-radius: 6px; margin-right: 15px;">
-                    <div style="flex-grow: 1;">
-                        <h4 style="margin: 0; font-size: 16px;">{book['isim']}</h4>
-                        <p style="margin: 5px 0 0 0; font-size: 14px; color: #777;">{book['yazar']}</p>
+                <div style="display: flex; align-items: center; border: 1px solid #ddd; padding: 10px; border-radius: 10px; margin-bottom: 10px;">
+                    <img src="{b['kapak']}" style="width: 60px; height: 90px; border-radius: 5px; margin-right: 15px;">
+                    <div>
+                        <h4 style="margin:0;">{b['isim']}</h4>
+                        <p style="margin:0; color: gray;">{b['yazar']}</p>
                     </div>
                 </div>
             """, unsafe_allow_html=True)
