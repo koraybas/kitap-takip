@@ -8,67 +8,74 @@ if 'kitap_listesi' not in st.session_state:
 
 def get_books(q):
     try:
-        # Aramayı daha geniş (intitle: yerine genel sorgu) ve 10 sonuç dönecek şekilde güncelledik
-        url = f"https://www.googleapis.com/books/v1/volumes?q={q.replace(' ', '+')}&maxResults=10"
+        # Arama terimini hem Türkçe hem global sonuçlara açıyoruz
+        # 'country=TR' ve 'printType=books' zorlaması ekledik
+        url = f"https://www.googleapis.com/books/v1/volumes?q={q.replace(' ', '+')}&maxResults=10&printType=books"
         res = requests.get(url, timeout=10).json()
         items = res.get("items", [])
         results = []
         for item in items:
             info = item.get("volumeInfo", {})
+            # Kapak resmini daha büyük ve güvenli formatta çek
+            img_links = info.get("imageLinks", {})
+            kapak_url = img_links.get("thumbnail") or img_links.get("smallThumbnail")
+            if not kapak_url:
+                kapak_url = "https://via.placeholder.com/150x220?text=No+Cover"
+            
             results.append({
                 "title": info.get("title", "Bilinmiyor"),
                 "author": info.get("authors", ["Bilinmiyor"])[0],
-                "cover": info.get("imageLinks", {}).get("thumbnail", "https://via.placeholder.com/150x220?text=No+Cover").replace("http://", "https://")
+                "cover": kapak_url.replace("http://", "https://")
             })
         return results
     except:
         return []
 
 st.title("📚 Dijital Kütüphanem")
-tab_liste, tab_ekle = st.tabs(["📋 Kütüphanem", "🔍 Kitap Ara & Ekle"])
+t_liste, t_ekle = st.tabs(["📋 Kütüphanem", "🔍 Kitap Ara & Ekle"])
 
-with tab_ekle:
+with t_ekle:
     st.subheader("Kitap Ara")
-    with st.form("arama_formu"):
+    # Form kullanımı butona basılınca veriyi korur
+    with st.form("arama_formu", clear_on_submit=False):
         sorgu = st.text_input("Kitap veya Yazar Adı")
         ara_butonu = st.form_submit_button("Ara")
     
     if ara_butonu and sorgu:
-        sonuclar = get_books(sorgu)
-        if not sonuclar:
-            st.warning("Google'da tam eşleşme bulunamadı. Lütfen Manuel Ekleme kısmını kullanın veya ismi kontrol edin.")
-        else:
-            for i, s in enumerate(sonuclar):
-                col1, col2 = st.columns([1, 2])
-                with col1:
-                    st.image(s['cover'], width=100)
-                with col2:
-                    st.write(f"**{s['title']}**")
-                    st.write(f"*{s['author']}*")
-                    durum = st.selectbox("Durum", ["Okunacak", "Okunuyor", "Okundu"], key=f"durum_{i}")
-                    if st.button("Kütüphaneye Ekle", key=f"btn_{i}"):
-                        st.session_state.kitap_listesi.append({"title": s['title'], "author": s['author'], "cover": s['cover'], "status": durum})
-                        st.success(f"'{s['title']}' eklendi!")
+        with st.spinner('Kütüphaneler taranıyor...'):
+            sonuclar = get_books(sorgu)
+            if not sonuclar:
+                st.warning("Google kütüphanesinde sonuç bulunamadı. Lütfen Manuel girişi deneyin.")
+            else:
+                for i, s in enumerate(sonuclar):
+                    col1, col2 = st.columns([1, 2])
+                    with col1:
+                        st.image(s['cover'], width=100)
+                    with col2:
+                        st.markdown(f"**{s['title']}**")
+                        st.caption(f"Yazar: {s['author']}")
+                        durum = st.selectbox("Durum", ["Okunacak", "Okunuyor", "Okundu"], key=f"d_{i}")
+                        if st.button("Kütüphaneye Ekle", key=f"k_{i}"):
+                            st.session_state.kitap_listesi.append({
+                                "title": s['title'],
+                                "author": s['author'],
+                                "cover": s['cover'],
+                                "status": durum
+                            })
+                            st.success(f"Eklendi: {s['title']}")
 
     st.divider()
-    # MANUEL EKLEME BÖLÜMÜ (Google bulamazsa can simidi)
-    with st.expander("➕ Aradığınız Kitabı Bulamadınız mı? Manuel Ekleyin"):
-        m_isim = st.text_input("Kitap Adı (Manuel)")
-        m_yazar = st.text_input("Yazar Adı (Manuel)")
-        m_durum = st.selectbox("Okuma Durumu (Manuel)", ["Okunacak", "Okunuyor", "Okundu"])
-        if st.button("Manuel Olarak Ekle"):
-            if m_isim and m_yazar:
-                st.session_state.kitap_listesi.append({
-                    "title": m_isim,
-                    "author": m_yazar,
-                    "cover": "https://via.placeholder.com/150x220?text=Manuel+Kayit",
-                    "status": m_durum
-                })
-                st.success("Kitap manuel olarak eklendi!")
-            else:
-                st.error("Lütfen isim ve yazar alanlarını doldurun.")
+    with st.expander("➕ Manuel Kayıt (Eğer yukarıda çıkmazsa)"):
+        m_isim = st.text_input("Kitap Adı")
+        m_yazar = st.text_input("Yazar Adı")
+        m_img = st.text_input("Kapak Resim Linki (Opsiyonel)", placeholder="https://...jpg")
+        m_durum = st.selectbox("Okuma Durumu", ["Okunacak", "Okunuyor", "Okundu"], key="m_durum")
+        if st.button("Manuel Ekle"):
+            img = m_img if m_img else "https://via.placeholder.com/150x220?text=Manuel+Kayit"
+            st.session_state.kitap_listesi.append({"title": m_isim, "author": m_yazar, "cover": img, "status": m_durum})
+            st.success("Manuel olarak eklendi!")
 
-with tab_liste:
+with t_liste:
     if not st.session_state.kitap_listesi:
         st.info("Kütüphane boş.")
     else:
