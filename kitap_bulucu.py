@@ -10,89 +10,90 @@ if 'kitap_listesi' not in st.session_state:
 if 'bulunan_kitaplar' not in st.session_state:
     st.session_state.bulunan_kitaplar = []
 
-# 3. MEGA Arama Fonksiyonu (Google + Open Library + Cross Check)
-def mega_kitap_ara(sorgu):
+# 3. GELİŞMİŞ ARAMA MOTORU (Google Search Mantığı)
+def super_kitap_ara(sorgu):
     results = []
-    # Arama terimini hem orijinal hem de normalize ederek temizle
-    q = sorgu.strip().replace(' ', '+')
-    
-    # Kaynak 1: Google Books (Genişletilmiş Sorgu)
+    # Google Books üzerinden en geniş aramayı yap (relevance ve printType zorlaması olmadan)
     try:
-        # langRestrict'i kaldırdım çünkü 'Şehit' gibi kitaplar farklı dillerde de olabilir
-        g_url = f"https://www.googleapis.com/books/v1/volumes?q={q}&maxResults=8&printType=books"
-        g_res = requests.get(g_url, timeout=10).json()
-        for item in g_res.get("items", []):
+        # Arama terimini hem Türkçe hem İngilizce varyasyonlarla genişletiyoruz
+        url = f"https://www.googleapis.com/books/v1/volumes?q={sorgu.replace(' ', '+')}&maxResults=10"
+        res = requests.get(url, timeout=10).json()
+        
+        for item in res.get("items", []):
             info = item.get("volumeInfo", {})
-            img = info.get("imageLinks", {}).get("thumbnail", "").replace("http://", "https://")
+            # Kapak resmi için tüm alternatifleri tara
+            img_links = info.get("imageLinks", {})
+            # En iyi çözünürlüğü seçmeye çalış
+            img = (img_links.get("extraLarge") or img_links.get("large") or 
+                   img_links.get("medium") or img_links.get("small") or 
+                   img_links.get("thumbnail") or img_links.get("smallThumbnail"))
+            
             if img:
+                img = img.replace("http://", "https://")
                 results.append({
                     "title": info.get("title", "Bilinmiyor"),
                     "author": info.get("authors", ["Bilinmiyor"])[0],
                     "cover": img
                 })
-    except: pass
+    except:
+        pass
 
-    # Kaynak 2: Open Library (Google'ın bulamadığı nadir/yeni kitaplar için)
-    if len(results) < 3:
+    # Eğer hala boşsa, Amazon/Kitapyurdu tarzı geniş sonuçlar için farklı bir sorgu dene
+    if not results:
         try:
-            ol_url = f"https://openlibrary.org/search.json?q={q}&limit=5"
-            ol_res = requests.get(ol_url, timeout=10).json()
-            for doc in ol_res.get("docs", []):
-                cover_id = doc.get("cover_i")
-                if cover_id:
+            # Sadece isim odaklı daha basit bir sorgu
+            url_simple = f"https://www.googleapis.com/books/v1/volumes?q=intitle:{sorgu.replace(' ', '+')}"
+            res_simple = requests.get(url_simple, timeout=10).json()
+            for item in res_simple.get("items", []):
+                info = item.get("volumeInfo", {})
+                img = info.get("imageLinks", {}).get("thumbnail", "").replace("http://", "https://")
+                if img:
                     results.append({
-                        "title": doc.get("title", "Bilinmiyor"),
-                        "author": doc.get("author_name", ["Bilinmiyor"])[0],
-                        "cover": f"https://covers.openlibrary.org/b/id/{cover_id}-L.jpg"
+                        "title": info.get("title", "Bilinmiyor"),
+                        "author": info.get("authors", ["Bilinmiyor"])[0],
+                        "cover": img
                     })
-        except: pass
-    
-    # Aynı kitapları listeden temizle (Duplicate check)
-    unique_results = []
-    seen_titles = set()
-    for r in results:
-        if r['title'].lower() not in seen_titles:
-            unique_results.append(r)
-            seen_titles.add(r['title'].lower())
-            
-    return unique_results
+        except:
+            pass
+
+    return results
 
 # 4. Arayüz
 st.title("📚 Dijital Kütüphanem")
 
-tab_ekle, tab_liste = st.tabs(["🔍 Kitap Bul & Ekle", "📋 Kütüphanem"])
+t_ekle, t_liste = st.tabs(["🔍 Kitap Bul & Ekle", "📋 Kütüphanem"])
 
-with tab_ekle:
-    st.subheader("Kitap, Yazar veya Karakter Yazın")
-    col_in, col_btn = st.columns([4, 1])
-    with col_in:
-        sorgu = st.text_input("Arama yapın...", placeholder="Örn: Şehit Kaveh Akbar", key="s_input", label_visibility="collapsed")
-    with col_btn:
+with t_ekle:
+    st.subheader("Kitap veya Yazar Yazın")
+    c_in, c_btn = st.columns([4, 1])
+    with c_in:
+        sorgu = st.text_input("Arama yapın...", key="s_input", label_visibility="collapsed")
+    with c_btn:
         ara_btn = st.button("Ara")
 
     if ara_btn and sorgu:
         with st.spinner('Derin arama yapılıyor...'):
-            st.session_state.bulunan_kitaplar = mega_kitap_ara(sorgu)
+            st.session_state.bulunan_kitaplar = super_kitap_ara(sorgu)
 
     if st.session_state.bulunan_kitaplar:
         for i, b in enumerate(st.session_state.bulunan_kitaplar):
             with st.container():
-                c1, c2 = st.columns([1, 2])
-                with c1:
-                    st.image(b['cover'], width=100)
-                with c2:
+                col1, col2 = st.columns([1, 2])
+                with col1:
+                    st.image(b['cover'], use_container_width=True)
+                with col2:
                     st.markdown(f"**{b['title']}**")
                     st.caption(f"Yazar: {b['author']}")
-                    durum = st.selectbox("Durum", ["Okunacak", "Okunuyor", "Okundu"], key=f"dr_{i}")
-                    if st.button("Listeye Ekle", key=f"add_{i}"):
+                    durum = st.selectbox("Okuma Durumu", ["Okunacak", "Okunuyor", "Okundu"], key=f"dr_{i}")
+                    if st.button("Ekle", key=f"add_{i}"):
                         st.session_state.kitap_listesi.append({
                             "title": b['title'], "author": b['author'], 
                             "cover": b['cover'], "status": durum
                         })
-                        st.success("Kütüphaneye eklendi!")
+                        st.success("Eklendi!")
             st.divider()
 
-with tab_liste:
+with t_liste:
     if not st.session_state.kitap_listesi:
         st.info("Kütüphaneniz şu an boş.")
     else:
@@ -105,7 +106,6 @@ with tab_liste:
                 st.caption(f"{k['author']} | {k['status']}")
             with c3:
                 if st.button("🗑️", key=f"del_{idx}"):
-                    pos = len(st.session_state.kitap_listesi) - 1 - idx
-                    st.session_state.kitap_listesi.pop(pos)
+                    st.session_state.kitap_listesi.pop(len(st.session_state.kitap_listesi)-1-idx)
                     st.rerun()
             st.divider()
