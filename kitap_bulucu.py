@@ -19,9 +19,8 @@ def kitap_ara_derin(sorgu):
     results = []
     q = sorgu.replace(' ', '+')
     
-    # KANAL 1: Google Books (Genişletilmiş Filtre - Hem Türkçe Hem İngilizce)
+    # KANAL 1: Google Books (Genişletilmiş Filtre)
     try:
-        # 'langRestrict' (dil kısıtlaması) tamamen kaldırıldı
         url_g = f"https://www.googleapis.com/books/v1/volumes?q={q}&maxResults=15&printType=books"
         headers = {"User-Agent": "Mozilla/5.0"}
         res_g = requests.get(url_g, headers=headers, timeout=10).json()
@@ -29,8 +28,10 @@ def kitap_ara_derin(sorgu):
         if "items" in res_g:
             for item in res_g["items"]:
                 inf = item.get("volumeInfo", {})
-                img = inf.get("imageLinks", {}).get("thumbnail", "").replace("http://", "https://")
+                img_data = inf.get("imageLinks", {})
+                img = img_data.get("thumbnail") or img_data.get("smallThumbnail")
                 if img:
+                    img = img.replace("http://", "https://")
                     results.append({
                         "ad": inf.get("title", "Bilinmiyor"),
                         "yazar": inf.get("authors", ["Bilinmiyor"])[0],
@@ -38,7 +39,7 @@ def kitap_ara_derin(sorgu):
                     })
     except: pass
 
-    # KANAL 2: Open Library (Eğer ilk kanal 'Radley Ailesi'ni bulamazsa takviye yapar)
+    # KANAL 2: Open Library (Yedek)
     if len(results) < 5:
         try:
             url_ol = f"https://openlibrary.org/search.json?q={q}&limit=10"
@@ -74,13 +75,13 @@ with t1:
                 with c2:
                     st.markdown(f"**{k['ad']}**")
                     st.caption(f"Yazar: {k['yazar']}")
-                    d = st.selectbox("Durum Seçin", ["Okuyacağım", "Okuyorum", "Okudum"], key=f"d_{i}")
+                    durum_sec = st.selectbox("Durum Seçin", ["Okuyacağım", "Okuyorum", "Okudum"], key=f"d_{i}")
                     if st.button("Listeye Ekle", key=f"b_{i}"):
-                        st.session_state.koleksiyon.append({"ad": k['ad'], "yazar": k['yazar'], "kapak": k['kapak'], "durum": d})
+                        st.session_state.koleksiyon.append({"ad": k['ad'], "yazar": k['yazar'], "kapak": k['kapak'], "durum": durum_sec})
                         st.success("Listenize eklendi!")
             st.divider()
 
-with tab2_ui := t2:
+with t2:
     if not st.session_state.koleksiyon:
         st.info("Listeniz henüz boş.")
     else:
@@ -88,9 +89,17 @@ with tab2_ui := t2:
             col1, col2, col3 = st.columns([1, 3, 1])
             with col1: st.image(ktp['kapak'], width=70)
             with col2:
-                renk = "#28a745" if ktp['durum'] == "Okudum" else "#ffc107" if ktp['durum'] == "Okuyorum" else "#6c757d"
-                st.markdown(f'<div class="book-card"><b>{ktp["ad"]}</b><br><small>{ktp["yazar"]}</small><br><span style="color:{renk};">● {ktp["durum"]}</span></div>', unsafe_allow_html=True)
+                durum_renk = "#28a745" if ktp['durum'] == "Okudum" else "#ffc107" if ktp['durum'] == "Okuyorum" else "#6c757d"
+                st.markdown(f"""
+                    <div class="book-card">
+                        <b>{ktp["ad"]}</b><br>
+                        <small>{ktp["yazar"]}</small><br>
+                        <span style="color:{durum_renk}; font-weight:bold;">● {ktp["durum"]}</span>
+                    </div>
+                """, unsafe_allow_html=True)
             with col3:
                 if st.button("Sil", key=f"del_{idx}"):
-                    st.session_state.koleksiyon.pop(len(st.session_state.koleksiyon)-1-idx)
+                    # Listeden silme işlemi
+                    pos = len(st.session_state.koleksiyon) - 1 - idx
+                    st.session_state.koleksiyon.pop(pos)
                     st.rerun()
