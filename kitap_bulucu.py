@@ -1,83 +1,77 @@
 import streamlit as st
-import pandas as pd
 import sqlite3
 import requests
 
-# Sayfa Ayarları
-st.set_page_config(page_title="Dijital Kitaplığım", page_icon="📚", layout="centered")
+# 1. Sayfa Ayarları (Hata riskini azaltmak için en başa)
+st.set_page_config(page_title="Kitaplığım", page_icon="📚")
 
-# --- MODERN STİL (Gelişmiş Kart Görünümü) ---
-st.markdown("""
-    <style>
-    .main { background-color: #f0f2f6; }
-    .book-card {
-        background-color: white;
-        padding: 20px;
-        border-radius: 15px;
-        box-shadow: 0 4px 15px rgba(0,0,0,0.05);
-        margin-bottom: 20px;
-        display: flex;
-        flex-direction: row;
-        align-items: center;
-    }
-    .book-info { margin-left: 20px; flex-grow: 1; }
-    .book-cover { border-radius: 8px; box-shadow: 2px 2px 10px rgba(0,0,0,0.1); }
-    </style>
-    """, unsafe_allow_html=True)
+# 2. Veritabanı Bağlantısı (Bulut uyumlu)
+def get_connection():
+    return sqlite3.connect('kutuphanem.db', check_same_thread=False)
 
-# --- VERİTABANI VE API FONKSİYONLARI ---
 def init_db():
-    conn = sqlite3.connect('kutuphanem.db', check_same_thread=False)
+    conn = get_connection()
     c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS kitaplar 
-                 (isim TEXT, yazar TEXT, tur TEXT, durum TEXT, kapak_url TEXT)''')
+                 (isim TEXT, yazar TEXT, kapak_url TEXT)''')
     conn.commit()
-    return conn
+    conn.close()
 
-def get_book_details(kitap_adi):
-    # Google Books API'den kapak ve yazar bilgisi çeker
+init_db()
+
+# 3. Google'dan Kapak Bulma Fonksiyonu
+def get_book_info(book_name):
     try:
-        url = f"https://www.googleapis.com/books/v1/volumes?q={kitap_adi}"
-        response = requests.get(url).json()
-        if "items" in response:
-            item = response["items"][0]["volumeInfo"]
-            kapak = item.get("imageLinks", {}).get("thumbnail", "https://via.placeholder.com/128x192?text=Kapak+Yok")
-            yazar = item.get("authors", ["Bilinmiyor"])[0]
-            return yazar, kapak
+        url = f"https://www.googleapis.com/books/v1/volumes?q={book_name}"
+        res = requests.get(url).json()
+        if "items" in res:
+            info = res["items"][0]["volumeInfo"]
+            cover = info.get("imageLinks", {}).get("thumbnail", "https://via.placeholder.com/150x200?text=Kapak+Yok")
+            author = info.get("authors", ["Bilinmiyor"])[0]
+            return author, cover
     except:
         pass
-    return "Bilinmiyor", "https://via.placeholder.com/128x192?text=Kapak+Yok"
+    return "Bilinmiyor", "https://via.placeholder.com/150x200?text=Kapak+Yok"
 
-conn = init_db()
-
-# --- ARAYÜZ ---
+# 4. Arayüz Tasarımı
 st.title("📚 Dijital Kitaplığım")
-tab1, tab2 = st.tabs(["➕ Yeni Kitap", "📖 Kütüphaneyi Gez"])
 
-with tab1:
-    with st.form("ekleme_formu"):
-        isim = st.text_input("Kitap Adı")
-        submit = st.form_submit_button("Bilgileri Getir ve Kaydet")
-        
-        if submit and isim:
-            yazar, kapak = get_book_details(isim)
+menu = st.sidebar.selectbox("Menü", ["Kitaplarımı Gör", "Yeni Kitap Ekle"])
+
+if menu == "Yeni Kitap Ekle":
+    st.subheader("Yeni Bir Kitap Ara ve Ekle")
+    kitap_adi = st.text_input("Kitap Adı Yazın")
+    
+    if st.button("Kütüphaneme Ekle"):
+        if kitap_adi:
+            yazar, kapak = get_book_info(kitap_adi)
+            conn = get_connection()
             c = conn.cursor()
-            c.execute("INSERT INTO kitaplar VALUES (?,?,?,?,?)", (isim, yazar, "Genel", "Okunacak", kapak))
+            c.execute("INSERT INTO kitaplar VALUES (?,?,?)", (kitap_adi, yazar, kapak))
             conn.commit()
-            st.success(f"'{isim}' kütüphaneye eklendi!")
+            conn.close()
+            st.success(f"'{kitap_adi}' başarıyla eklendi!")
+            st.image(kapak, width=150)
+        else:
+            st.error("Lütfen bir isim yazın.")
 
-with tab2:
+else:
+    st.subheader("Kütüphanem")
+    conn = get_connection()
     c = conn.cursor()
     c.execute("SELECT * FROM kitaplar")
     kitaplar = c.fetchall()
-    
-    for k in kitaplar:
-        # Kart Tasarımı
-        col1, col2 = st.columns([1, 3])
-        with col1:
-            st.image(k[4], width=100) # Kapak resmi
-        with col2:
-            st.subheader(k[0]) # Kitap adı
-            st.write(f"**Yazar:** {k[1]}")
-            st.write(f"**Durum:** {k[3]}")
-        st.divider()
+    conn.close()
+
+    if not kitaplar:
+        st.info("Kütüphaneniz şu an boş.")
+    else:
+        # Kitapları mobilde güzel görünen bir ızgara (grid) yapısında göster
+        for k in kitaplar:
+            col1, col2 = st.columns([1, 2])
+            with col1:
+                st.image(k[2], width=120)
+            with col2:
+                st.markdown(f"### {k[0]}")
+                st.markdown(f"**Yazar:** {k[1]}")
+            st.divider()
