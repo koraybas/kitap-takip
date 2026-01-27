@@ -10,52 +10,31 @@ if 'kitap_listesi' not in st.session_state:
 if 'bulunan_kitaplar' not in st.session_state:
     st.session_state.bulunan_kitaplar = []
 
-# 3. GELİŞMİŞ ARAMA MOTORU (Google Search Mantığı)
-def super_kitap_ara(sorgu):
+# 3. GENİŞLETİLMİŞ ARAMA MOTORU
+def kitap_ara_genis(sorgu):
     results = []
-    # Google Books üzerinden en geniş aramayı yap (relevance ve printType zorlaması olmadan)
+    # Tüm kısıtlamaları kaldırıp genel bir sorgu atıyoruz
+    # Google'ın her türlü eşleşmeyi (Amazon, Kitapyurdu verileri dahil) getirmesi için
+    q = sorgu.replace(' ', '+')
+    url = f"https://www.googleapis.com/books/v1/volumes?q={q}&maxResults=10"
+    
     try:
-        # Arama terimini hem Türkçe hem İngilizce varyasyonlarla genişletiyoruz
-        url = f"https://www.googleapis.com/books/v1/volumes?q={sorgu.replace(' ', '+')}&maxResults=10"
         res = requests.get(url, timeout=10).json()
-        
-        for item in res.get("items", []):
-            info = item.get("volumeInfo", {})
-            # Kapak resmi için tüm alternatifleri tara
-            img_links = info.get("imageLinks", {})
-            # En iyi çözünürlüğü seçmeye çalış
-            img = (img_links.get("extraLarge") or img_links.get("large") or 
-                   img_links.get("medium") or img_links.get("small") or 
-                   img_links.get("thumbnail") or img_links.get("smallThumbnail"))
-            
-            if img:
-                img = img.replace("http://", "https://")
-                results.append({
-                    "title": info.get("title", "Bilinmiyor"),
-                    "author": info.get("authors", ["Bilinmiyor"])[0],
-                    "cover": img
-                })
-    except:
-        pass
-
-    # Eğer hala boşsa, Amazon/Kitapyurdu tarzı geniş sonuçlar için farklı bir sorgu dene
-    if not results:
-        try:
-            # Sadece isim odaklı daha basit bir sorgu
-            url_simple = f"https://www.googleapis.com/books/v1/volumes?q=intitle:{sorgu.replace(' ', '+')}"
-            res_simple = requests.get(url_simple, timeout=10).json()
-            for item in res_simple.get("items", []):
+        if "items" in res:
+            for item in res["items"]:
                 info = item.get("volumeInfo", {})
-                img = info.get("imageLinks", {}).get("thumbnail", "").replace("http://", "https://")
+                img_links = info.get("imageLinks", {})
+                # En kaliteli resmi bulmaya çalış
+                img = img_links.get("thumbnail") or img_links.get("smallThumbnail")
                 if img:
+                    img = img.replace("http://", "https://")
                     results.append({
                         "title": info.get("title", "Bilinmiyor"),
                         "author": info.get("authors", ["Bilinmiyor"])[0],
                         "cover": img
                     })
-        except:
-            pass
-
+    except:
+        pass
     return results
 
 # 4. Arayüz
@@ -64,27 +43,29 @@ st.title("📚 Dijital Kütüphanem")
 t_ekle, t_liste = st.tabs(["🔍 Kitap Bul & Ekle", "📋 Kütüphanem"])
 
 with t_ekle:
-    st.subheader("Kitap veya Yazar Yazın")
-    c_in, c_btn = st.columns([4, 1])
-    with c_in:
+    st.subheader("Kitap, Yazar veya ISBN Yazın")
+    # Arama kutusu ve buton
+    col_in, col_btn = st.columns([4, 1])
+    with col_in:
         sorgu = st.text_input("Arama yapın...", key="s_input", label_visibility="collapsed")
-    with c_btn:
+    with col_btn:
         ara_btn = st.button("Ara")
 
     if ara_btn and sorgu:
-        with st.spinner('Derin arama yapılıyor...'):
-            st.session_state.bulunan_kitaplar = super_kitap_ara(sorgu)
+        with st.spinner('Arama yapılıyor...'):
+            st.session_state.bulunan_kitaplar = kitap_ara_genis(sorgu)
 
     if st.session_state.bulunan_kitaplar:
+        st.write("---")
         for i, b in enumerate(st.session_state.bulunan_kitaplar):
             with st.container():
-                col1, col2 = st.columns([1, 2])
-                with col1:
-                    st.image(b['cover'], use_container_width=True)
-                with col2:
+                c1, c2 = st.columns([1, 2])
+                with c1:
+                    st.image(b['cover'], width=100)
+                with c2:
                     st.markdown(f"**{b['title']}**")
                     st.caption(f"Yazar: {b['author']}")
-                    durum = st.selectbox("Okuma Durumu", ["Okunacak", "Okunuyor", "Okundu"], key=f"dr_{i}")
+                    durum = st.selectbox("Durum", ["Okunacak", "Okunuyor", "Okundu"], key=f"dr_{i}")
                     if st.button("Ekle", key=f"add_{i}"):
                         st.session_state.kitap_listesi.append({
                             "title": b['title'], "author": b['author'], 
