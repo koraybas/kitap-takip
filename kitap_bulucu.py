@@ -1,83 +1,81 @@
 import streamlit as st
 import requests
 
-# 1. Sayfa Ayarları
-st.set_page_config(page_title="Kitaplığım", page_icon="📚", layout="centered")
+# 1. Sayfa Konfigürasyonu
+st.set_page_config(page_title="Kitap Takip", page_icon="📚", layout="centered")
 
-# 2. Hafıza (Session State)
-if 'kitap_listesi' not in st.session_state:
-    st.session_state.kitap_listesi = []
-if 'arama_sonuclari' not in st.session_state:
-    st.session_state.arama_sonuclari = []
+# 2. Veri Yönetimi
+if 'kitaplik' not in st.session_state:
+    st.session_state.kitaplik = []
+if 'search_results' not in st.session_state:
+    st.session_state.search_results = []
 
-# 3. Kitap Arama Fonksiyonu
+# 3. Gelişmiş Arama Fonksiyonu (Bilgisayar Hassasiyetinde)
 def kitap_ara(sorgu):
-    results = []
-    # Bilgisayar hassasiyetinde arama için temiz bir sorgu yapısı
-    url = f"https://www.googleapis.com/books/v1/volumes?q={sorgu.replace(' ', '+')}&maxResults=10"
-    
+    # Kısıtlamaları kaldırmak için ham sorgu yapısı
+    url = f"https://www.googleapis.com/books/v1/volumes?q={sorgu.replace(' ', '+')}&maxResults=15"
     try:
-        # Tarayıcı gibi davranarak kısıtlamaları aşıyoruz
+        # Tarayıcı gibi davranan header
         headers = {"User-Agent": "Mozilla/5.0"}
-        response = requests.get(url, headers=headers, timeout=10).json()
+        res = requests.get(url, headers=headers, timeout=10).json()
         
-        if "items" in response:
-            for item in response["items"]:
-                info = item.get("volumeInfo", {})
-                img_links = info.get("imageLinks", {})
-                # Kapak resmini en güvenli şekilde al
-                img = img_links.get("thumbnail") or img_links.get("smallThumbnail")
-                
+        results = []
+        if "items" in res:
+            for item in res["items"]:
+                vol = item.get("volumeInfo", {})
+                # Görseli en güvenli şekilde al
+                img = vol.get("imageLinks", {}).get("thumbnail", "").replace("http://", "https://")
                 if img:
-                    img = img.replace("http://", "https://")
                     results.append({
-                        "title": info.get("title", "Bilinmiyor"),
-                        "author": info.get("authors", ["Bilinmiyor"])[0],
+                        "title": vol.get("title", "Bilinmiyor"),
+                        "author": vol.get("authors", ["Bilinmiyor"])[0],
                         "cover": img
                     })
+        return results
     except:
-        pass
-    return results
+        return []
 
-# 4. Arayüz Tasarımı
+# 4. Uygulama Arayüzü
 st.title("📚 Dijital Kütüphanem")
 
-tab_ekle, tab_liste = st.tabs(["🔍 Kitap Ara & Ekle", "📋 Listem"])
+tab1, tab2 = st.tabs(["🔍 Kitap Bul & Ekle", "📖 Benim Listem"])
 
-with tab_ekle:
-    st.subheader("Kitap İsmi Yazın")
-    # Arama kutusu ve butonu
-    sorgu_input = st.text_input("Örn: Simyacı, Şehit, Radley Ailesi", key="input_ara")
+with tab1:
+    st.subheader("Kitap veya Yazar Ara")
+    # Arama kutusu
+    sorgu_kelimesi = st.text_input("Örn: Simyacı, Paulo Coelho, Şehit...", placeholder="Aramak istediğiniz kitabı yazın")
+    
     if st.button("Sistemde Ara"):
-        if sorgu_input:
-            with st.spinner('Kitaplar aranıyor...'):
-                st.session_state.arama_sonuclari = kitap_ara(sorgu_input)
-
-    # Arama Sonuçlarını Listele
-    if st.session_state.arama_sonuclari:
+        if sorgu_kelimesi:
+            with st.spinner('Kütüphaneler taranıyor...'):
+                st.session_state.search_results = kitap_ara(sorgu_kelimesi)
+    
+    # Arama Sonuçlarını Kart Şeklinde Göster
+    if st.session_state.search_results:
         st.write("---")
-        for i, b in enumerate(st.session_state.arama_sonuclari):
+        for i, b in enumerate(st.session_state.search_results):
             col1, col2 = st.columns([1, 2])
             with col1:
                 st.image(b['cover'], width=100)
             with col2:
                 st.markdown(f"**{b['title']}**")
                 st.caption(f"Yazar: {b['author']}")
-                durum = st.selectbox("Durum", ["Okunacak", "Okunuyor", "Okundu"], key=f"durum_{i}")
-                if st.button("Kütüphaneye Ekle", key=f"ekle_{i}"):
-                    st.session_state.kitap_listesi.append({
-                        "title": b['title'], 
-                        "author": b['author'], 
-                        "cover": b['cover'], 
+                durum = st.selectbox("Durum Seçin", ["Okunacak", "Okunuyor", "Okundu"], key=f"durum_{i}")
+                if st.button("Kütüphaneme Ekle", key=f"ekle_{i}"):
+                    st.session_state.kitaplik.append({
+                        "title": b['title'],
+                        "author": b['author'],
+                        "cover": b['cover'],
                         "status": durum
                     })
-                    st.success(f"'{b['title']}' eklendi!")
+                    st.success(f"'{b['title']}' listenize eklendi!")
 
-with tab_liste:
-    if not st.session_state.kitap_listesi:
-        st.info("Kütüphaneniz şu an boş.")
+with tab2:
+    if not st.session_state.kitaplik:
+        st.info("Kütüphaneniz şu an boş. Arama yaparak kitap ekleyin!")
     else:
-        for idx, k in enumerate(reversed(st.session_state.kitap_listesi)):
+        # Kitapları göster (Son eklenen en üstte)
+        for idx, k in enumerate(reversed(st.session_state.kitaplik)):
             c1, c2, c3 = st.columns([1, 3, 1])
             with c1:
                 st.image(k['cover'], width=70)
@@ -85,9 +83,8 @@ with tab_liste:
                 st.write(f"**{k['title']}**")
                 st.caption(f"{k['author']} | {k['status']}")
             with c3:
-                if st.button("Sil", key=f"sil_{idx}"):
-                    # Gerçek listeyi güncelle
-                    real_idx = len(st.session_state.kitap_listesi) - 1 - idx
-                    st.session_state.kitap_listesi.pop(real_idx)
+                if st.button("🗑️", key=f"del_{idx}"):
+                    pos = len(st.session_state.kitaplik) - 1 - idx
+                    st.session_state.kitaplik.pop(pos)
                     st.rerun()
             st.divider()
