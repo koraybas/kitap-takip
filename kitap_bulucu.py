@@ -1,28 +1,12 @@
 import streamlit as st
-import sqlite3
 import requests
-from contextlib import contextmanager
 
 # 1. Sayfa Ayarları
 st.set_page_config(page_title="Kitaplığım", page_icon="📚", layout="centered")
 
-# 2. Güvenli Veritabanı Bağlantısı (OperationalError Çözümü)
-@contextmanager
-def db_connection():
-    # 'timeout' ekleyerek dosya kilitlenmelerini (OperationalError) engelliyoruz
-    conn = sqlite3.connect('kutuphanem.db', timeout=10, check_same_thread=False)
-    try:
-        yield conn
-    finally:
-        conn.close()
-
-def init_db():
-    with db_connection() as conn:
-        conn.execute('''CREATE TABLE IF NOT EXISTS kitaplar 
-                        (isim TEXT, yazar TEXT, kapak_url TEXT)''')
-        conn.commit()
-
-init_db()
+# 2. Veri Yönetimi (SQLite yerine Streamlit Session State - Hata Riski Sıfır)
+if 'kitaplik' not in st.session_state:
+    st.session_state.kitaplik = []
 
 # 3. Google API (Kapak Bulucu)
 def get_book_info(book_name):
@@ -48,30 +32,27 @@ with tab2:
     yeni_kitap = st.text_input("Kitap İsmi", key="input_kitap")
     if st.button("Kaydet"):
         if yeni_kitap:
-            yazar, kapak = get_book_info(yeni_kitap)
-            with db_connection() as conn:
-                conn.execute("INSERT INTO kitaplar VALUES (?,?,?)", (yeni_kitap, yazar, kapak))
-                conn.commit()
-            st.success(f"'{yeni_kitap}' eklendi!")
+            with st.spinner('Kitap bilgileri aranıyor...'):
+                yazar, kapak = get_book_info(yeni_kitap)
+                # Veriyi listeye ekle
+                yeni_veri = {"isim": yeni_kitap, "yazar": yazar, "kapak": kapak}
+                st.session_state.kitaplik.append(yeni_veri)
+                st.success(f"'{yeni_kitap}' listeye eklendi!")
         else:
             st.warning("Lütfen bir isim yazın.")
 
 with tab1:
-    with db_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute("SELECT * FROM kitaplar")
-        kitaplar = cursor.fetchall()
-
-    if not kitaplar:
+    if not st.session_state.kitaplik:
         st.info("Kütüphaneniz boş. Kitap ekleyerek başlayın!")
     else:
-        for k in kitaplar:
+        # Son ekleneni en üstte göster
+        for k in reversed(st.session_state.kitaplik):
             st.markdown(f"""
                 <div style="display: flex; align-items: center; border: 1px solid #ddd; padding: 12px; border-radius: 15px; margin-bottom: 12px; background-color: white; box-shadow: 2px 2px 5px rgba(0,0,0,0.05);">
-                    <img src="{k[2]}" style="width: 75px; border-radius: 8px; margin-right: 15px;">
+                    <img src="{k['kapak']}" style="width: 75px; border-radius: 8px; margin-right: 15px;">
                     <div style="flex-grow: 1;">
-                        <h4 style="margin: 0; font-size: 16px; color: #1f1f1f;">{k[0]}</h4>
-                        <p style="margin: 4px 0 0 0; font-size: 14px; color: #666;">{k[1]}</p>
+                        <h4 style="margin: 0; font-size: 16px; color: #1f1f1f;">{k['isim']}</h4>
+                        <p style="margin: 4px 0 0 0; font-size: 14px; color: #666;">{k['yazar']}</p>
                     </div>
                 </div>
             """, unsafe_allow_html=True)
