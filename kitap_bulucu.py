@@ -1,93 +1,90 @@
 import streamlit as st
 import requests
 
-# --- 1. AYARLAR ---
+# --- 1. AYARLAR & TASARIM ---
 st.set_page_config(page_title="Kitaplığım", page_icon="📚", layout="centered")
 
-# Sizin istediğiniz modern mavi stil
 st.markdown("""
     <style>
-    .stButton>button { width: 100%; border-radius: 10px; background-color: #007bff; color: white; height: 3em; }
-    .book-card { background: white; padding: 15px; border-radius: 12px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); border-left: 5px solid #007bff; margin-bottom: 10px; }
+    .stButton>button { width: 100%; border-radius: 10px; background-color: #007bff; color: white; height: 3.2em; font-weight: bold; }
+    .book-card { background: white; padding: 15px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); border-left: 5px solid #007bff; margin-bottom: 12px; }
     </style>
     """, unsafe_allow_html=True)
 
-if 'liste' not in st.session_state: st.session_state.liste = []
-if 'sonuclar' not in st.session_state: st.session_state.sonuclar = []
+if 'koleksiyon' not in st.session_state: st.session_state.koleksiyon = []
+if 'ara_sonuclar' not in st.session_state: st.session_state.ara_sonuclar = []
 
-# --- 2. ASLA ENGELLENMEYEN ARAMA MOTORU ---
+# --- 2. GÜNCEL KİTAP BULUCU (Hibrit Model) ---
 def kitap_ara_derin(sorgu):
-    all_results = []
+    results = []
     q = sorgu.replace(' ', '+')
     
-    # Kaynak 1: Open Library (Dünya Arşivi - Hiçbir kısıtlama yoktur)
-    try:
-        url_ol = f"https://openlibrary.org/search.json?q={q}&limit=10"
-        res_ol = requests.get(url_ol, timeout=10).json()
-        for doc in res_ol.get("docs", []):
-            c_id = doc.get("cover_i")
-            if c_id:
-                all_results.append({
-                    "ad": doc.get("title", "Bilinmiyor"),
-                    "yazar": doc.get("author_name", ["Bilinmiyor"])[0],
-                    "kapak": f"https://covers.openlibrary.org/b/id/{c_id}-L.jpg"
-                })
-    except: pass
-
-    # Kaynak 2: Google Books (Sadece kısıtlama yoksa sonuçları ekler)
-    try:
-        url_g = f"https://www.googleapis.com/books/v1/volumes?q={q}&maxResults=10"
-        headers = {"User-Agent": "Mozilla/5.0"}
-        res_g = requests.get(url_g, headers=headers, timeout=10).json()
-        for item in res_g.get("items", []):
-            inf = item.get("volumeInfo", {})
-            img = inf.get("imageLinks", {}).get("thumbnail", "").replace("http://", "https://")
-            if img:
-                all_results.append({
-                    "ad": inf.get("title", "Bilinmiyor"),
-                    "yazar": inf.get("authors", ["Bilinmiyor"])[0],
-                    "kapak": img
-                })
-    except: pass
+    # GOOGLE BOOKS - Güncel kitaplar için en geniş parametreler
+    # orderBy=relevance ve maxResults=20 yaparak yeni baskıları yakalama ihtimalini artırıyoruz
+    url = f"https://www.googleapis.com/books/v1/volumes?q={q}&maxResults=20&printType=books&orderBy=relevance"
     
-    return all_results
+    try:
+        # Sunucuyu 'yabancı' görmemesi için tarayıcı kimliği (headers) ekliyoruz
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0"}
+        res = requests.get(url, headers=headers, timeout=12).json()
+        
+        if "items" in res:
+            for item in res["items"]:
+                info = item.get("volumeInfo", {})
+                img_data = info.get("imageLinks", {})
+                # En iyi çözünürlüklü kapağı seç
+                img = img_data.get("thumbnail") or img_data.get("smallThumbnail")
+                if img:
+                    img = img.replace("http://", "https://")
+                    results.append({
+                        "ad": info.get("title", "Bilinmiyor"),
+                        "yazar": info.get("authors", ["Bilinmiyor"])[0],
+                        "kapak": img
+                    })
+    except:
+        pass
+    return results
 
 # --- 3. ARAYÜZ ---
-t1, t2 = st.tabs(["🔍 Kitap Bul & Ekle", "📋 Listem"])
+st.title("📚 Koray Bey'in Kitaplığı")
+tab1, tab2 = st.tabs(["🔍 Kitap Bul & Ekle", "📋 Okuma Listem"])
 
-with t1:
-    s = st.text_input("Kitap veya Yazar Yazın", placeholder="Örn: Simyacı, Şehit...")
-    if st.button("Sistemde Derin Ara"):
+with tab1:
+    s = st.text_input("Kitap, Yazar veya Karakter Adı", placeholder="Örn: Şehit Kaveh Akbar")
+    if st.button("Tüm Kaynaklarda Derin Ara"):
         if s:
-            with st.spinner('Kütüphaneler taranıyor...'):
-                st.session_state.sonuclar = kitap_ara_derin(s)
+            with st.spinner('En yeni kitaplar taranıyor...'):
+                st.session_state.ara_sonuclar = kitap_ara_derin(s)
 
-    if st.session_state.sonuclar:
-        for i, k in enumerate(st.session_state.sonuclar):
+    if st.session_state.ara_sonuclar:
+        st.write(f"🔍 {len(st.session_state.ara_sonuclar)} sonuç listeleniyor:")
+        for i, k in enumerate(st.session_state.ara_sonuclar):
             with st.container():
                 c1, c2 = st.columns([1, 2])
-                with c1: st.image(k['kapak'], width=100)
+                with c1: st.image(k['kapak'], use_container_width=True)
                 with c2:
-                    st.markdown(f"**{k['ad']}**")
-                    st.caption(f"Yazar: {k['yazar']}")
-                    d = st.selectbox("Durum", ["Okuyacağım", "Okuyorum", "Okudum"], key=f"d_{i}")
-                    if st.button("Ekle", key=f"b_{i}"):
-                        st.session_state.liste.append({"ad": k['ad'], "yazar": k['yazar'], "kapak": k['kapak'], "durum": d})
-                        st.success("Listeye Eklendi!")
+                    st.markdown(f"### {k['ad']}")
+                    st.caption(f"✍️ {k['yazar']}")
+                    d = st.selectbox("Durum", ["Okuyacağım", "Okuyorum", "Okudum"], key=f"sel_{i}")
+                    if st.button("Koleksiyona Ekle", key=f"add_{i}"):
+                        st.session_state.koleksiyon.append({
+                            "ad": k['ad'], "yazar": k['yazar'], 
+                            "kapak": k['kapak'], "durum": d
+                        })
+                        st.success(f"'{k['ad']}' eklendi!")
             st.divider()
 
-with t2:
-    if not st.session_state.liste:
-        st.info("Listeniz henüz boş.")
+with tab2:
+    if not st.session_state.koleksiyon:
+        st.info("Kütüphaneniz şu an boş.")
     else:
-        for idx, ktp in enumerate(reversed(st.session_state.liste)):
-            with st.container():
-                c1, c2, c3 = st.columns([1, 3, 1])
-                with c1: st.image(ktp['kapak'], width=70)
-                with c2:
-                    r_renk = "#28a745" if ktp['durum'] == "Okudum" else "#ffc107"
-                    st.markdown(f'<div class="book-card"><b>{ktp["ad"]}</b><br><small>{ktp["yazar"]}</small><br><span style="color:{r_renk};">● {ktp["durum"]}</span></div>', unsafe_allow_html=True)
-                with c3:
-                    if st.button("🗑️", key=f"del_{idx}"):
-                        st.session_state.liste.pop(len(st.session_state.liste)-1-idx)
-                        st.rerun()
+        for idx, ktp in enumerate(reversed(st.session_state.koleksiyon)):
+            col1, col2, col3 = st.columns([1, 3, 1])
+            with col1: st.image(ktp['kapak'], width=75)
+            with col2:
+                renk = "#28a745" if ktp['durum'] == "Okudum" else "#ffc107" if ktp['durum'] == "Okuyorum" else "#6c757d"
+                st.markdown(f"""<div class="book-card"><b>{ktp["ad"]}</b><br><small>{ktp["yazar"]}</small><br><span style="color:{renk}; font-weight:bold;">● {ktp["durum"]}</span></div>""", unsafe_allow_html=True)
+            with col3:
+                if st.button("Sil", key=f"del_{idx}"):
+                    st.session_state.koleksiyon.pop(len(st.session_state.koleksiyon)-1-idx)
+                    st.rerun()
