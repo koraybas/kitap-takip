@@ -1,107 +1,118 @@
 import streamlit as st
 import requests
 
-# 1. Uygulama Ayarları
-st.set_page_config(page_title="Kitaplığım", page_icon="📚", layout="centered")
+# --- 1. SAYFA AYARLARI (Mobil Uyumluluk) ---
+st.set_page_config(
+    page_title="Kitaplığım",
+    page_icon="📚",
+    layout="centered"
+)
 
-# 2. Hafıza (Session State)
-if 'kitap_listesi' not in st.session_state:
-    st.session_state.kitap_listesi = []
-if 'bulunan_kitaplar' not in st.session_state:
-    st.session_state.bulunan_kitaplar = []
+# --- 2. MODERN STİL (Paylaştığınız CSS Tasarımı) ---
+st.markdown("""
+    <style>
+    .main { background-color: #f8f9fa; }
+    .stButton>button {
+        width: 100%;
+        border-radius: 10px;
+        height: 3em;
+        background-color: #007bff;
+        color: white;
+        border: none;
+    }
+    .book-card {
+        background-color: white;
+        padding: 15px;
+        border-radius: 15px;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        margin-bottom: 15px;
+        border-left: 5px solid #007bff;
+    }
+    </style>
+    """, unsafe_allow_html=True)
 
-# 3. KESİN ÇÖZÜM: Kısıtlamaları Delen Arama Motoru
-def kitap_ara_kesin(sorgu):
-    results = []
-    # API'nin kısıtlamalarına takılmamak için sorguyu 'genel web' formatına çevirdik
-    q = sorgu.replace(' ', '+')
-    # Amazon, Kitapyurdu ve D&R gibi sitelerin verilerini kapsayan en geniş indeks
-    url = f"https://www.googleapis.com/books/v1/volumes?q={q}&maxResults=15&printType=books"
-    
+# --- 3. HAFIZA YÖNETİMİ ---
+if 'kutuphane' not in st.session_state:
+    st.session_state.kutuphane = []
+
+# --- 4. OTOMATİK ARAMA MOTORU (Google & Amazon Verileri) ---
+def kitap_ara_otomatik(sorgu):
+    url = f"https://www.googleapis.com/books/v1/volumes?q={sorgu.replace(' ', '+')}&maxResults=10"
     try:
-        # Kendimizi bir sunucu değil, gerçek bir tarayıcı (Chrome) gibi tanıtıyoruz
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
-        }
+        headers = {"User-Agent": "Mozilla/5.0"}
         res = requests.get(url, headers=headers, timeout=10).json()
-        
+        results = []
         if "items" in res:
             for item in res["items"]:
                 info = item.get("volumeInfo", {})
-                img_links = info.get("imageLinks", {})
-                img = img_links.get("thumbnail") or img_links.get("smallThumbnail")
-                
+                img = info.get("imageLinks", {}).get("thumbnail", "").replace("http://", "https://")
                 if img:
-                    img = img.replace("http://", "https://")
                     results.append({
                         "isim": info.get("title", "Bilinmiyor"),
                         "yazar": info.get("authors", ["Bilinmiyor"])[0],
                         "kapak": img
                     })
-    except Exception as e:
-        st.error(f"Sistem hatası: {e}")
-        
-    return results
+        return results
+    except:
+        return []
 
-# 4. Arayüz Tasarımı
-st.title("📚 Dijital Kitaplığım")
-st.caption("Amazon, Google ve Kitapyurdu veritabanları taranıyor.")
+# --- 5. ANA MENÜ (SEKMELER) ---
+tab1, tab2 = st.tabs(["➕ Kitap Bul & Ekle", "📚 Kütüphanem"])
 
-tab_ekle, tab_liste = st.tabs(["🔍 Kitap Bul & Ekle", "📋 Listem"])
-
-with tab_ekle:
-    st.subheader("Kitap veya Yazar Ara")
-    sorgu = st.text_input("", placeholder="Örn: Simyacı veya Paulo Coelho", label_visibility="collapsed")
+# --- TAB 1: KİTAP BUL & EKLE ---
+with tab1:
+    st.subheader("Kitap Ara ve Listene Ekle")
+    arama_sorgusu = st.text_input("Kitap adı veya yazar yazın", placeholder="Örn: Simyacı")
     
-    if st.button("Sistemde Derin Ara", use_container_width=True):
-        if sorgu:
-            with st.spinner('Derin arama yapılıyor...'):
-                st.session_state.bulunan_kitaplar = kitap_ara_kesin(sorgu)
-    
-    # Arama Sonuçlarını Göster
-    if st.session_state.bulunan_kitaplar:
-        for i, kitap in enumerate(st.session_state.bulunan_kitaplar):
-            with st.container():
-                col1, col2 = st.columns([1, 2])
-                with col1:
-                    st.image(kitap['kapak'], use_container_width=True)
-                with col2:
-                    st.markdown(f"**{kitap['isim']}**")
-                    st.caption(f"Yazar: {kitap['yazar']}")
-                    
-                    # Sizin istediğiniz seçenekler
-                    durum = st.selectbox(
-                        "Durum Seçin", 
-                        ["Okuyacağım", "Okuyorum", "Okudum"], 
-                        key=f"durum_{i}"
-                    )
-                    
-                    if st.button("Listeme Ekle", key=f"add_{i}", use_container_width=True):
-                        st.session_state.kitap_listesi.append({
-                            "isim": kitap['isim'],
-                            "yazar": kitap['yazar'],
-                            "kapak": kitap['kapak'],
-                            "durum": durum
-                        })
-                        st.success(f"'{kitap['isim']}' listenize eklendi!")
-            st.divider()
+    if st.button("Sistemde Derin Ara"):
+        if arama_sorgusu:
+            with st.spinner('Taranıyor...'):
+                sonuclar = kitap_ara_otomatik(arama_sorgusu)
+                if not sonuclar:
+                    st.error("Üzgünüm, kitap bulunamadı.")
+                else:
+                    for i, k in enumerate(sonuclar):
+                        with st.container():
+                            col1, col2 = st.columns([1, 2])
+                            with col1:
+                                st.image(k['kapak'], width=100)
+                            with col2:
+                                st.markdown(f"**{k['isim']}**")
+                                st.caption(f"Yazar: {k['yazar']}")
+                                durum = st.selectbox("Durum", ["Okuyacağım", "Okuyorum", "Okudum"], key=f"d_{i}")
+                                if st.button("Listeme Ekle", key=f"b_{i}"):
+                                    st.session_state.kutuphane.append({
+                                        "isim": k['isim'],
+                                        "yazar": k['yazar'],
+                                        "kapak": k['kapak'],
+                                        "durum": durum
+                                    })
+                                    st.success(f"'{k['isim']}' eklendi!")
+                        st.divider()
 
-with tab_liste:
+# --- TAB 2: KÜTÜPHANEM ---
+with tab2:
     st.subheader("Okuma Listem")
-    if not st.session_state.kitap_listesi:
-        st.info("Listeniz henüz boş. Arama yaparak kitap ekleyin!")
+    if not st.session_state.kutuphane:
+        st.info("Kütüphaneniz henüz boş.")
     else:
-        for idx, k in enumerate(reversed(st.session_state.kitap_listesi)):
-            c1, c2, c3 = st.columns([1, 3, 1])
-            with c1:
-                st.image(k['kapak'], width=70)
-            with c2:
-                st.markdown(f"**{k['isim']}**")
-                renk = "green" if k['durum'] == "Okudum" else "orange" if k['durum'] == "Okuyorum" else "gray"
-                st.markdown(f"*{k['yazar']}* | :{renk}[{k['durum']}]")
-            with c3:
-                if st.button("🗑️", key=f"del_{idx}"):
-                    pos = len(st.session_state.kitap_listesi) - 1 - idx
-                    st.session_state.kitap_listesi.pop(pos)
-                    st.rerun()
-            st.divider()
+        for idx, kitap in enumerate(reversed(st.session_state.kutuphane)):
+            with st.container():
+                c1, c2, c3 = st.columns([1, 3, 1])
+                with c1:
+                    st.image(kitap['kapak'], width=70)
+                with c2:
+                    # Sizin paylaştığınız kart tasarımı
+                    renk = "#28a745" if kitap['durum'] == "Okudum" else "#ffc107"
+                    st.markdown(f"""
+                        <div class="book-card">
+                            <h3 style='margin:0; font-size:1.1em;'>📖 {kitap['isim']}</h3>
+                            <p style='margin:5px 0; color:#555;'>👤 {kitap['yazar']}</p>
+                            <span style='color:{renk}; font-weight:bold;'>• {kitap['durum']}</span>
+                        </div>
+                        """, unsafe_allow_html=True)
+                with c3:
+                    if st.button("🗑️", key=f"sil_{idx}"):
+                        gercek_idx = len(st.session_state.kutuphane) - 1 - idx
+                        st.session_state.kutuphane.pop(gercek_idx)
+                        st.rerun()
