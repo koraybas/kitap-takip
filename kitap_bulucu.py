@@ -4,15 +4,16 @@ import requests
 # 1. Sayfa Ayarları
 st.set_page_config(page_title="Kitaplığım", page_icon="📚", layout="centered")
 
-# 2. Hafıza Yönetimi (Verilerin kaybolmaması için)
+# 2. Hafıza Yönetimi
 if 'kitap_listesi' not in st.session_state:
     st.session_state.kitap_listesi = []
 
-# 3. Google API Sorgulama Fonksiyonu
+# 3. GÜÇLENDİRİLMİŞ Arama Fonksiyonu
 def get_books(q):
     try:
-        url = f"https://www.googleapis.com/books/v1/volumes?q={q.replace(' ', '+')}&maxResults=3"
-        res = requests.get(url, timeout=5).json()
+        # Arama terimini başlıkta arayacak şekilde (intitle) ve Türkçe öncelikli (langRestrict=tr) yapıyoruz
+        url = f"https://www.googleapis.com/books/v1/volumes?q=intitle:{q.replace(' ', '+')}&langRestrict=tr&maxResults=5"
+        res = requests.get(url, timeout=10).json()
         items = res.get("items", [])
         results = []
         for item in items:
@@ -26,14 +27,13 @@ def get_books(q):
     except:
         return []
 
-# 4. Arayüz Tasarımı
+# 4. Arayüz
 st.title("📚 Dijital Kütüphanem")
 
 tab_liste, tab_ekle = st.tabs(["📋 Kütüphanem", "🔍 Kitap Ara & Ekle"])
 
 with tab_ekle:
     st.subheader("Kitap Ara")
-    # Form kullanarak butona basıldığında tüm verinin gitmesini sağlıyoruz
     with st.form("arama_formu"):
         sorgu = st.text_input("Kitap veya Yazar Adı")
         ara_butonu = st.form_submit_button("Ara")
@@ -41,7 +41,7 @@ with tab_ekle:
     if ara_butonu and sorgu:
         sonuclar = get_books(sorgu)
         if not sonuclar:
-            st.warning("Sonuç bulunamadı.")
+            st.warning("Maalesef sonuç bulunamadı. Lütfen daha spesifik bir isim yazın.")
         else:
             for i, s in enumerate(sonuclar):
                 col1, col2 = st.columns([1, 2])
@@ -50,7 +50,6 @@ with tab_ekle:
                 with col2:
                     st.write(f"**{s['title']}**")
                     st.write(f"*{s['author']}*")
-                    # Her sonuç için özel bir durum seçici ve ekle butonu
                     durum = st.selectbox("Durum", ["Okunacak", "Okunuyor", "Okundu"], key=f"durum_{i}")
                     if st.button("Kütüphaneye Ekle", key=f"btn_{i}"):
                         st.session_state.kitap_listesi.append({
@@ -74,7 +73,6 @@ with tab_liste:
                 st.caption(f"{k['author']} | {k['status']}")
             with c3:
                 if st.button("🗑️", key=f"del_{idx}"):
-                    # Gerçek indexi hesaplayıp sil
                     real_idx = len(st.session_state.kitap_listesi) - 1 - idx
                     st.session_state.kitap_listesi.pop(real_idx)
                     st.rerun()
