@@ -10,22 +10,26 @@ if 'kitap_listesi' not in st.session_state:
 if 'bulunan_kitaplar' not in st.session_state:
     st.session_state.bulunan_kitaplar = []
 
-# 3. GENİŞLETİLMİŞ ARAMA MOTORU
-def kitap_ara_genis(sorgu):
+# 3. BİLGİSAYAR HASSASİYETİNDE ARAMA (Deep Search)
+def derin_kitap_ara(sorgu):
     results = []
-    # Tüm kısıtlamaları kaldırıp genel bir sorgu atıyoruz
-    # Google'ın her türlü eşleşmeyi (Amazon, Kitapyurdu verileri dahil) getirmesi için
-    q = sorgu.replace(' ', '+')
-    url = f"https://www.googleapis.com/books/v1/volumes?q={q}&maxResults=10"
+    # Bilgisayardaki Google araması gibi davranması için sorguyu zenginleştiriyoruz
+    # 'intitle' veya 'inauthor' zorlaması olmadan, en geniş internet indeksi
+    q = sorgu.strip().replace(' ', '+')
+    
+    # Google'ın en geniş veritabanı kapısı
+    url = f"https://www.googleapis.com/books/v1/volumes?q={q}&maxResults=15&printType=books"
     
     try:
         res = requests.get(url, timeout=10).json()
         if "items" in res:
             for item in res["items"]:
                 info = item.get("volumeInfo", {})
+                
+                # Kapak resmi için tüm ihtimalleri zorla (Bilgisayardaki gibi net görseller için)
                 img_links = info.get("imageLinks", {})
-                # En kaliteli resmi bulmaya çalış
                 img = img_links.get("thumbnail") or img_links.get("smallThumbnail")
+                
                 if img:
                     img = img.replace("http://", "https://")
                     results.append({
@@ -43,20 +47,17 @@ st.title("📚 Dijital Kütüphanem")
 t_ekle, t_liste = st.tabs(["🔍 Kitap Bul & Ekle", "📋 Kütüphanem"])
 
 with t_ekle:
-    st.subheader("Kitap, Yazar veya ISBN Yazın")
-    # Arama kutusu ve buton
-    col_in, col_btn = st.columns([4, 1])
-    with col_in:
-        sorgu = st.text_input("Arama yapın...", key="s_input", label_visibility="collapsed")
-    with col_btn:
-        ara_btn = st.button("Ara")
+    st.subheader("Kitap veya Yazar Yazın")
+    # Arama kutusu (Bilgisayar klavyesi gibi hızlı tepki için)
+    sorgu = st.text_input("Örn: Şehit Kaveh Akbar, Radley Ailesi...", key="s_input")
+    ara_btn = st.button("Sistemde Ara")
 
     if ara_btn and sorgu:
-        with st.spinner('Arama yapılıyor...'):
-            st.session_state.bulunan_kitaplar = kitap_ara_genis(sorgu)
+        with st.spinner('Bilgisayar hassasiyetinde taranıyor...'):
+            st.session_state.bulunan_kitaplar = derin_kitap_ara(sorgu)
 
     if st.session_state.bulunan_kitaplar:
-        st.write("---")
+        st.write(f"🔍 {len(st.session_state.bulunan_kitaplar)} sonuç bulundu:")
         for i, b in enumerate(st.session_state.bulunan_kitaplar):
             with st.container():
                 c1, c2 = st.columns([1, 2])
