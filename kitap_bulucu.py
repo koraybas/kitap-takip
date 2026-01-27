@@ -1,18 +1,15 @@
 import streamlit as st
 import requests
 
-# 1. Sayfa Ayarları
 st.set_page_config(page_title="Kitaplığım", page_icon="📚", layout="centered")
 
-# 2. Hafıza Yönetimi
 if 'kitap_listesi' not in st.session_state:
     st.session_state.kitap_listesi = []
 
-# 3. GÜÇLENDİRİLMİŞ Arama Fonksiyonu
 def get_books(q):
     try:
-        # Arama terimini başlıkta arayacak şekilde (intitle) ve Türkçe öncelikli (langRestrict=tr) yapıyoruz
-        url = f"https://www.googleapis.com/books/v1/volumes?q=intitle:{q.replace(' ', '+')}&langRestrict=tr&maxResults=5"
+        # Aramayı daha geniş (intitle: yerine genel sorgu) ve 10 sonuç dönecek şekilde güncelledik
+        url = f"https://www.googleapis.com/books/v1/volumes?q={q.replace(' ', '+')}&maxResults=10"
         res = requests.get(url, timeout=10).json()
         items = res.get("items", [])
         results = []
@@ -27,9 +24,7 @@ def get_books(q):
     except:
         return []
 
-# 4. Arayüz
 st.title("📚 Dijital Kütüphanem")
-
 tab_liste, tab_ekle = st.tabs(["📋 Kütüphanem", "🔍 Kitap Ara & Ekle"])
 
 with tab_ekle:
@@ -41,7 +36,7 @@ with tab_ekle:
     if ara_butonu and sorgu:
         sonuclar = get_books(sorgu)
         if not sonuclar:
-            st.warning("Maalesef sonuç bulunamadı. Lütfen daha spesifik bir isim yazın.")
+            st.warning("Google'da tam eşleşme bulunamadı. Lütfen Manuel Ekleme kısmını kullanın veya ismi kontrol edin.")
         else:
             for i, s in enumerate(sonuclar):
                 col1, col2 = st.columns([1, 2])
@@ -52,13 +47,26 @@ with tab_ekle:
                     st.write(f"*{s['author']}*")
                     durum = st.selectbox("Durum", ["Okunacak", "Okunuyor", "Okundu"], key=f"durum_{i}")
                     if st.button("Kütüphaneye Ekle", key=f"btn_{i}"):
-                        st.session_state.kitap_listesi.append({
-                            "title": s['title'],
-                            "author": s['author'],
-                            "cover": s['cover'],
-                            "status": durum
-                        })
+                        st.session_state.kitap_listesi.append({"title": s['title'], "author": s['author'], "cover": s['cover'], "status": durum})
                         st.success(f"'{s['title']}' eklendi!")
+
+    st.divider()
+    # MANUEL EKLEME BÖLÜMÜ (Google bulamazsa can simidi)
+    with st.expander("➕ Aradığınız Kitabı Bulamadınız mı? Manuel Ekleyin"):
+        m_isim = st.text_input("Kitap Adı (Manuel)")
+        m_yazar = st.text_input("Yazar Adı (Manuel)")
+        m_durum = st.selectbox("Okuma Durumu (Manuel)", ["Okunacak", "Okunuyor", "Okundu"])
+        if st.button("Manuel Olarak Ekle"):
+            if m_isim and m_yazar:
+                st.session_state.kitap_listesi.append({
+                    "title": m_isim,
+                    "author": m_yazar,
+                    "cover": "https://via.placeholder.com/150x220?text=Manuel+Kayit",
+                    "status": m_durum
+                })
+                st.success("Kitap manuel olarak eklendi!")
+            else:
+                st.error("Lütfen isim ve yazar alanlarını doldurun.")
 
 with tab_liste:
     if not st.session_state.kitap_listesi:
