@@ -4,75 +4,75 @@ import requests
 # 1. Sayfa Ayarları
 st.set_page_config(page_title="Kitaplığım", page_icon="📚", layout="centered")
 
-# 2. Veri Saklama (Hafıza Yöntemi - SQLite hatalarını engeller)
+# 2. Veri Saklama
 if 'kitap_listesi' not in st.session_state:
     st.session_state.kitap_listesi = []
+if 'arama_sonuclari' not in st.session_state:
+    st.session_state.arama_sonuclari = []
 
-# 3. Gelişmiş Google Books API
-def kitap_verisi_cek(kitap_adi):
-    no_cover = "https://via.placeholder.com/150x220?text=Kapak+Yok"
+# 3. Google API Sorgulama
+def kitap_ara(kitap_adi):
+    url = f"https://www.googleapis.com/books/v1/volumes?q={kitap_adi.replace(' ', '+')}&maxResults=3"
     try:
-        url = f"https://www.googleapis.com/books/v1/volumes?q={kitap_adi.replace(' ', '+')}"
         res = requests.get(url, timeout=10).json()
-        
+        results = []
         if "items" in res:
-            info = res["items"][0]["volumeInfo"]
-            yazar = info.get("authors", ["Bilinmiyor"])[0]
-            kapak = info.get("imageLinks", {}).get("thumbnail", no_cover).replace("http://", "https://")
-            return yazar, kapak
+            for item in res["items"]:
+                info = item.get("volumeInfo", {})
+                results.append({
+                    "isim": info.get("title", "Bilinmiyor"),
+                    "yazar": info.get("authors", ["Bilinmiyor"])[0],
+                    "kapak": info.get("imageLinks", {}).get("thumbnail", "https://via.placeholder.com/150x220?text=No+Cover").replace("http://", "https://")
+                })
+        return results
     except:
-        pass
-    return "Bilinmiyor", no_cover
+        return []
 
 # 4. Arayüz
-st.title("📚 Dijital Kütüphanem")
+st.title("📚 Dijital Kitaplığım")
+t_liste, t_ekle = st.tabs(["📋 Listem", "🔍 Kitap Ara & Ekle"])
 
-tab_liste, tab_ekle = st.tabs(["📋 Kitap Listem", "➕ Yeni Kitap Ekle"])
+with t_ekle:
+    st.subheader("Kitap Bul")
+    arama_sorgusu = st.text_input("Kitap veya Yazar Adı Yazın")
+    if st.button("Ara"):
+        if arama_sorgusu:
+            st.session_state.arama_sonuclari = kitap_ara(arama_sorgusu)
+    
+    if st.session_state.arama_sonuclari:
+        st.write("---")
+        for i, sonuc in enumerate(st.session_state.arama_sonuclari):
+            col1, col2 = st.columns([1, 2])
+            with col1:
+                st.image(sonuc['kapak'], width=100)
+            with col2:
+                st.markdown(f"**{sonuc['isim']}**")
+                st.caption(f"Yazar: {sonuc['yazar']}")
+                durum = st.selectbox(f"Durum #{i}", ["Okunacak", "Okunuyor", "Okundu"], key=f"sel_{i}")
+                if st.button(f"Kütüphaneye Ekle", key=f"add_{i}"):
+                    st.session_state.kitap_listesi.append({
+                        "isim": sonuc['isim'],
+                        "yazar": sonuc['yazar'],
+                        "kapak": sonuc['kapak'],
+                        "durum": durum
+                    })
+                    st.success(f"'{sonuc['isim']}' eklendi!")
+            st.divider()
 
-with tab_ekle:
-    st.subheader("Yeni Kayıt Oluştur")
-    with st.form("yeni_kitap_formu", clear_on_submit=True):
-        isim = st.text_input("Kitap Adı")
-        durum = st.selectbox("Okuma Durumu", ["Okunacak", "Okunuyor", "Okundu"])
-        submit = st.form_submit_button("Kütüphaneye Kaydet")
-        
-        if submit and isim:
-            with st.spinner('Bilgiler getiriliyor...'):
-                yazar, kapak = kitap_verisi_cek(isim)
-                # Veriyi listeye ekle
-                st.session_state.kitap_listesi.append({
-                    "isim": isim,
-                    "yazar": yazar,
-                    "kapak": kapak,
-                    "durum": durum
-                })
-                st.success(f"'{isim}' başarıyla eklendi!")
-                # Eklendiğinde kapağı hemen göster
-                st.image(kapak, width=100, caption="Bulunan Kapak")
-
-with tab_liste:
+with t_liste:
     if not st.session_state.kitap_listesi:
-        st.info("Kütüphaneniz boş. Kitap ekleyerek başlayın!")
+        st.info("Kütüphaneniz boş.")
     else:
-        # Kitapları listele (Son eklenen en üstte)
-        for idx, kitap in enumerate(reversed(st.session_state.kitap_listesi)):
-            # Statüye göre renk belirle
-            renk = "#28a745" if kitap['durum'] == "Okundu" else "#ffc107" if kitap['durum'] == "Okunuyor" else "#6c757d"
-            
-            st.markdown(f"""
-                <div style="display: flex; align-items: center; border: 1px solid #ddd; padding: 12px; border-radius: 15px; margin-bottom: 12px; background-color: white;">
-                    <img src="{kitap['kapak']}" style="width: 70px; border-radius: 8px; margin-right: 15px;">
-                    <div style="flex-grow: 1;">
-                        <h4 style="margin: 0; color: #333;">{kitap['isim']}</h4>
-                        <p style="margin: 3px 0; color: #666; font-size: 14px;">{kitap['yazar']}</p>
-                        <span style="background: {renk}; color: white; padding: 2px 8px; border-radius: 5px; font-size: 12px;">{kitap['durum']}</span>
-                    </div>
-                </div>
-            """, unsafe_allow_html=True)
-            
-            # Silme butonu
-            if st.button("Bu Kitabı Sil", key=f"btn_{idx}"):
-                real_idx = len(st.session_state.kitap_listesi) - 1 - idx
-                st.session_state.kitap_listesi.pop(real_idx)
-                st.rerun()
+        for idx, k in enumerate(reversed(st.session_state.kitap_listesi)):
+            c1, c2, c3 = st.columns([1, 3, 1])
+            with c1:
+                st.image(k['kapak'], width=70)
+            with c2:
+                st.markdown(f"**{k['isim']}**")
+                st.caption(f"{k['yazar']} | {k['durum']}")
+            with c3:
+                if st.button("🗑️", key=f"del_{idx}"):
+                    real_idx = len(st.session_state.kitap_listesi) - 1 - idx
+                    st.session_state.kitap_listesi.pop(real_idx)
+                    st.rerun()
             st.divider()
