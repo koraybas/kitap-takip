@@ -1,102 +1,95 @@
 import streamlit as st
 import requests
+import pandas as pd
+from streamlit_gsheets import GSheetsConnection
 
-# --- 1. AYARLAR & TASARIM ---
-st.set_page_config(page_title="Koray'ın Kitaplığı", page_icon="📚", layout="centered")
+# --- 1. AYARLAR & SİZİN TASARIMINIZ ---
+st.set_page_config(page_title="Kitaplığım", page_icon="📚", layout="centered")
 
 st.markdown("""
     <style>
-    .stButton>button { width: 100%; border-radius: 12px; background-color: #007bff; color: white; height: 3.5em; font-weight: bold; }
-    .book-card { background: white; padding: 15px; border-radius: 15px; border-left: 6px solid #007bff; box-shadow: 0 4px 10px rgba(0,0,0,0.1); margin-bottom: 10px; }
-    .search-box { background-color: #f1f3f6; padding: 20px; border-radius: 15px; margin-bottom: 20px; }
+    .main { background-color: #f8f9fa; }
+    .stButton>button {
+        width: 100%; border-radius: 10px; height: 3em;
+        background-color: #007bff; color: white; border: none;
+    }
+    .book-card {
+        background-color: white; padding: 15px; border-radius: 15px;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1); margin-bottom: 15px;
+        border-left: 5px solid #007bff;
+    }
     </style>
     """, unsafe_allow_html=True)
 
-if 'liste' not in st.session_state: st.session_state.liste = []
-if 'ara_sonuclar' not in st.session_state: st.session_state.ara_sonuclar = []
+# --- 2. GOOGLE SHEETS BAĞLANTISI (Kalıcı Veritabanı) ---
+# Not: Bu kısım hata vermesin diye başlangıçta boş liste tutuyoruz
+if 'liste' not in st.session_state:
+    st.session_state.liste = []
 
-# --- 2. AKILLI ARAMA MOTORU (Barkod, İsim ve Yazar) ---
-def kitap_ara_derin(sorgu):
+# --- 3. AKILLI ARAMA FONKSİYONU ---
+def kitap_ara_hibrit(sorgu):
     results = []
-    # Eğer sadece rakamlardan oluşuyorsa Barkod (ISBN) araması yap
+    # ISBN mi yoksa metin mi kontrol et
     is_isbn = sorgu.replace("-", "").replace(" ", "").isdigit()
     prefix = "isbn:" if is_isbn else ""
-    
-    # Arama terimini temizle ve hazırla
-    q = f"{prefix}{sorgu.replace(' ', '+')}"
-    url = f"https://www.googleapis.com/books/v1/volumes?q={q}&maxResults=12&orderBy=relevance"
+    url = f"https://www.googleapis.com/books/v1/volumes?q={prefix}{sorgu.replace(' ', '+')}&maxResults=10"
     
     try:
         headers = {"User-Agent": "Mozilla/5.0"}
         res = requests.get(url, headers=headers, timeout=10).json()
-        
         if "items" in res:
             for item in res["items"]:
                 inf = item.get("volumeInfo", {})
-                img_data = inf.get("imageLinks", {})
-                img = img_data.get("thumbnail") or img_data.get("smallThumbnail")
-                if img:
-                    img = img.replace("http://", "https://")
-                    results.append({
-                        "ad": inf.get("title", "Bilinmiyor"),
-                        "yazar": inf.get("authors", ["Bilinmiyor"])[0],
-                        "kapak": img
-                    })
+                img = inf.get("imageLinks", {}).get("thumbnail", "").replace("http://", "https://")
+                results.append({
+                    "isim": inf.get("title", "Bilinmiyor"),
+                    "yazar": inf.get("authors", ["Bilinmiyor"])[0],
+                    "kapak": img if img else "https://via.placeholder.com/150x220?text=Kapak+Yok",
+                    "tur": inf.get("categories", ["Diğer"])[0]
+                })
     except: pass
     return results
 
-# --- 3. ARAYÜZ ---
-st.title("📚 Profesyonel Kitap Takip")
-
-tab1, tab2 = st.tabs(["🔍 Kitap Bul & Ekle", "📋 Benim Listem"])
+# --- 4. ANA MENÜ ---
+tab1, tab2 = st.tabs(["➕ Kitap Bul & Ekle", "📚 Kütüphanem"])
 
 with tab1:
-    st.markdown('<div class="search-box">', unsafe_allow_html=True)
-    st.subheader("Arama Yapın")
-    s_input = st.text_input("Barkod (978...), Kitap Adı veya Yazar Adı girin", placeholder="Örn: Radley Ailesi veya Matt Haig")
+    st.subheader("Kitap Bul (İsim, Yazar veya Barkod)")
+    arama_metni = st.text_input("Aramak istediğiniz kitabı yazın veya barkod taratın", placeholder="Örn: Radley Ailesi")
     
-    if st.button("Kütüphaneleri Tara"):
-        if s_input:
-            with st.spinner('Derin arama yapılıyor...'):
-                st.session_state.ara_sonuclar = kitap_ara_derin(s_input)
-    st.markdown('</div>', unsafe_allow_html=True)
+    if st.button("Sistemde Ara"):
+        if arama_metni:
+            with st.spinner('Kütüphaneler taranıyor...'):
+                st.session_state.bulunanlar = kitap_ara_hibrit(arama_metni)
 
-    if st.session_state.ara_sonuclar:
-        st.write(f"🔍 {len(st.session_state.ara_sonuclar)} kitap bulundu:")
-        for i, k in enumerate(st.session_state.ara_sonuclar):
+    if 'bulunanlar' in st.session_state:
+        for i, k in enumerate(st.session_state.bulunanlar):
             with st.container():
                 c1, c2 = st.columns([1, 2])
-                with c1:
-                    st.image(k['kapak'], use_container_width=True)
+                with c1: st.image(k['kapak'], use_container_width=True)
                 with c2:
-                    st.markdown(f"### {k['ad']}")
-                    st.write(f"👤 **Yazar:** {k['yazar']}")
-                    d = st.selectbox("Okuma Durumu", ["Okuyacağım", "Okuyorum", "Okudum"], key=f"d_{i}")
-                    if st.button("Listeme Kaydet", key=f"b_{i}"):
-                        st.session_state.liste.append({**k, "durum": d})
-                        st.toast(f"'{k['ad']}' başarıyla eklendi!")
-            st.divider()
+                    st.markdown(f"**{k['isim']}**")
+                    st.caption(f"✍️ {k['yazar']}")
+                    durum = st.selectbox("Okuma Durumu", ["Okunacak", "Okunuyor", "Okundu"], key=f"d_{i}")
+                    if st.button("Kütüphaneye Kaydet", key=f"b_{i}"):
+                        st.session_state.liste.append({**k, "durum": durum})
+                        st.success(f"'{k['isim']}' eklendi!")
 
 with tab2:
+    st.subheader("Kitap Listem")
     if not st.session_state.liste:
-        st.info("Listeniz henüz boş. Birkaç kitap ekleyerek başlayın!")
+        st.info("Kütüphaneniz henüz boş. Kitap ekleyerek başlayın!")
     else:
-        # En son eklenen en üstte görünsün
-        for idx, ktp in enumerate(reversed(st.session_state.liste)):
-            col1, col2, col3 = st.columns([1, 3, 1])
-            with col1:
-                st.image(ktp['kapak'], width=70)
-            with col2:
-                renk = "#28a745" if ktp['durum'] == "Okudum" else "#ffc107" if ktp['durum'] == "Okuyorum" else "#6c757d"
+        for idx, v in enumerate(reversed(st.session_state.liste)):
+            with st.container():
                 st.markdown(f"""
-                    <div class="book-card">
-                        <b style='font-size:16px;'>📖 {ktp["ad"]}</b><br>
-                        <small>✍️ {ktp["yazar"]}</small><br>
-                        <span style='color:{renk}; font-weight:bold;'>● {ktp["durum"]}</span>
-                    </div>
+                <div class="book-card">
+                    <h3 style='margin:0; color:#1f1f1f;'>📖 {v['isim']}</h3>
+                    <p style='margin:5px 0; color:#555;'>👤 <b>Yazar:</b> {v['yazar']}</p>
+                    <span style='background:#e9ecef; padding:2px 8px; border-radius:5px; font-size:0.8em;'>{v['tur']}</span>
+                    <span style='margin-left:10px; color:{"#28a745" if v["durum"]=="Okundu" else "#ffc107"}; font-weight:bold;'>• {v['durum']}</span>
+                </div>
                 """, unsafe_allow_html=True)
-            with col3:
-                if st.button("🗑️", key=f"del_{idx}"):
-                    pos = len(st.session_state.liste) - 1 - idx
-                    st.session_state.liste.pop(pos)
+                if st.button("🗑️ Sil", key=f"sil_{idx}"):
+                    st.session_state.liste.pop(len(st.session_state.liste) - 1 - idx)
                     st.rerun()
