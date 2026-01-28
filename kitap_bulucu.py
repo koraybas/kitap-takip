@@ -1,9 +1,7 @@
 import streamlit as st
 import requests
-import pandas as pd
-from streamlit_gsheets import GSheetsConnection
 
-# --- 1. AYARLAR & SİZİN TASARIMINIZ ---
+# --- 1. AYARLAR & TASARIM ---
 st.set_page_config(page_title="Kitaplığım", page_icon="📚", layout="centered")
 
 st.markdown("""
@@ -21,17 +19,18 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. GOOGLE SHEETS BAĞLANTISI (Kalıcı Veritabanı) ---
-# Not: Bu kısım hata vermesin diye başlangıçta boş liste tutuyoruz
+# --- 2. HAFIZA ---
 if 'liste' not in st.session_state:
     st.session_state.liste = []
+if 'bulunanlar' not in st.session_state:
+    st.session_state.bulunanlar = []
 
 # --- 3. AKILLI ARAMA FONKSİYONU ---
 def kitap_ara_hibrit(sorgu):
     results = []
-    # ISBN mi yoksa metin mi kontrol et
     is_isbn = sorgu.replace("-", "").replace(" ", "").isdigit()
     prefix = "isbn:" if is_isbn else ""
+    # Google Books API - Türkiye ve Global sonuçları zorlar
     url = f"https://www.googleapis.com/books/v1/volumes?q={prefix}{sorgu.replace(' ', '+')}&maxResults=10"
     
     try:
@@ -55,14 +54,14 @@ tab1, tab2 = st.tabs(["➕ Kitap Bul & Ekle", "📚 Kütüphanem"])
 
 with tab1:
     st.subheader("Kitap Bul (İsim, Yazar veya Barkod)")
-    arama_metni = st.text_input("Aramak istediğiniz kitabı yazın veya barkod taratın", placeholder="Örn: Radley Ailesi")
+    arama_metni = st.text_input("Aramak istediğiniz kitabı yazın", placeholder="Örn: Radley Ailesi")
     
     if st.button("Sistemde Ara"):
         if arama_metni:
             with st.spinner('Kütüphaneler taranıyor...'):
                 st.session_state.bulunanlar = kitap_ara_hibrit(arama_metni)
 
-    if 'bulunanlar' in st.session_state:
+    if st.session_state.bulunanlar:
         for i, k in enumerate(st.session_state.bulunanlar):
             with st.container():
                 c1, c2 = st.columns([1, 2])
@@ -73,7 +72,7 @@ with tab1:
                     durum = st.selectbox("Okuma Durumu", ["Okunacak", "Okunuyor", "Okundu"], key=f"d_{i}")
                     if st.button("Kütüphaneye Kaydet", key=f"b_{i}"):
                         st.session_state.liste.append({**k, "durum": durum})
-                        st.success(f"'{k['isim']}' eklendi!")
+                        st.toast(f"'{k['isim']}' eklendi!")
 
 with tab2:
     st.subheader("Kitap Listem")
