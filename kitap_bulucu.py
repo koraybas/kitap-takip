@@ -1,7 +1,7 @@
 import streamlit as st
 import requests
 
-# --- 1. TASARIM & AYARLAR ---
+# --- 1. AYARLAR & TASARIM ---
 st.set_page_config(page_title="Koray'ın Kitaplığı", page_icon="📚", layout="centered")
 
 st.markdown("""
@@ -14,24 +14,29 @@ st.markdown("""
 if 'liste' not in st.session_state: st.session_state.liste = []
 if 'ara_sonuc' not in st.session_state: st.session_state.ara_sonuc = []
 
-# --- 2. ÇİFT KANAL ARAMA MOTORU (Türkiye Odaklı) ---
-def kitap_ara_super(sorgu):
+# --- 2. TÜRKİYE ODAKLI ARAMA MOTORU ---
+def kitap_ara_yerel(sorgu):
     results = []
     q = sorgu.replace(' ', '+')
     
-    # KANAL 1: Google Books (Türkiye Marketini Zorla)
+    # Google'ı Türkiye sonuçlarına zorlayan özel URL
+    # 'langRestrict=tr' ve 'lr=lang_tr' parametrelerini ekledik
+    url = f"https://www.googleapis.com/books/v1/volumes?q={q}&maxResults=20&country=TR&langRestrict=tr&lr=lang_tr&orderBy=relevance"
+    
     try:
-        # User-Agent ekleyerek Google'ın bizi "bot" sanmasını engelliyoruz
-        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
-        # country=TR ekleyerek Türkiye baskılarını (Radley Ailesi gibi) öne çıkarıyoruz
-        g_url = f"https://www.googleapis.com/books/v1/volumes?q={q}&maxResults=15&country=TR&orderBy=relevance"
-        res = requests.get(g_url, headers=headers, timeout=10).json()
+        # Sunucuyu gerçek bir Chrome tarayıcı gibi tanıtıyoruz
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept-Language": "tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7"
+        }
+        res = requests.get(url, headers=headers, timeout=10).json()
         
         if "items" in res:
             for item in res["items"]:
                 inf = item.get("volumeInfo", {})
                 img_links = inf.get("imageLinks", {})
                 img = img_links.get("thumbnail") or img_links.get("smallThumbnail")
+                
                 if img:
                     img = img.replace("http://", "https://")
                     results.append({
@@ -39,37 +44,33 @@ def kitap_ara_super(sorgu):
                         "yazar": inf.get("authors", ["Bilinmiyor"])[0],
                         "kapak": img
                     })
+        
+        # Eğer Türkçe sonuç çıkmazsa (Radley Ailesi gibi spesifik durumlar için) 
+        # yazar adıyla global bir arama daha ekle
+        if len(results) < 3:
+            url_global = f"https://www.googleapis.com/books/v1/volumes?q={q}&maxResults=10"
+            res_global = requests.get(url_global, headers=headers, timeout=10).json()
+            if "items" in res_global:
+                for item in res_global["items"]:
+                    inf = item.get("volumeInfo", {})
+                    img = inf.get("imageLinks", {}).get("thumbnail", "").replace("http://", "https://")
+                    if img:
+                        results.append({"isim": inf.get("title"), "yazar": inf.get("authors", [""])[0], "kapak": img})
+                        
     except: pass
-
-    # KANAL 2: Open Library (Yedek Kanal)
-    if not results:
-        try:
-            ol_url = f"https://openlibrary.org/search.json?q={q}&limit=10"
-            ol_res = requests.get(ol_url, timeout=10).json()
-            for doc in ol_res.get("docs", []):
-                c_id = doc.get("cover_i")
-                if c_id:
-                    results.append({
-                        "isim": doc.get("title", "Bilinmiyor"),
-                        "yazar": doc.get("author_name", ["Bilinmiyor"])[0],
-                        "kapak": f"https://covers.openlibrary.org/b/id/{c_id}-L.jpg"
-                    })
-        except: pass
-    
     return results
 
 # --- 3. ARAYÜZ ---
-st.title("📚 Koray'ın Akıllı Kitaplığı")
+st.title("📚 Koray Bey'in Kitaplığı")
 tab1, tab2 = st.tabs(["🔍 Kitap Bul", "📋 Okuma Listem"])
 
 with tab1:
-    s = st.text_input("Kitap, Yazar veya Barkod Yazın", placeholder="Örn: Radley Ailesi veya Simyacı")
+    s = st.text_input("Kitap veya Yazar Adı Yazın", placeholder="Örn: Radley Ailesi")
     if st.button("Derin Ara"):
         if s:
-            with st.spinner('Tüm dünya kütüphaneleri taranıyor...'):
-                st.session_state.ara_sonuc = kitap_ara_super(s)
+            with st.spinner('Türkiye rafları taranıyor...'):
+                st.session_state.ara_sonuc = kitap_ara_yerel(s)
     
-    # HATA DÜZELTİLDİ: := operatörü yerine standart kontrol
     if st.session_state.ara_sonuc:
         for i, k in enumerate(st.session_state.ara_sonuc):
             with st.container():
@@ -81,11 +82,11 @@ with tab1:
                     d = st.selectbox("Durum", ["Okunacak", "Okunuyor", "Okundu"], key=f"d_{i}")
                     if st.button("Listeye Ekle", key=f"b_{i}"):
                         st.session_state.liste.append({**k, "durum": d})
-                        st.toast(f"'{k['isim']}' eklendi!")
+                        st.toast(f"'{k['isim']}' listeye eklendi!")
 
 with tab2:
     if not st.session_state.liste:
-        st.info("Listeniz henüz boş.")
+        st.info("Kütüphaneniz henüz boş.")
     else:
         for idx, v in enumerate(reversed(st.session_state.liste)):
             with st.container():
@@ -97,7 +98,6 @@ with tab2:
                 </div>
                 """, unsafe_allow_html=True)
                 if st.button("🗑️ Sil", key=f"sil_{idx}"):
-                    # Tersten dizdiğimiz için silme indeksini ayarlıyoruz
                     pos = len(st.session_state.liste) - 1 - idx
                     st.session_state.liste.pop(pos)
                     st.rerun()
