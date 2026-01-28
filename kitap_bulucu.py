@@ -1,86 +1,112 @@
 import streamlit as st
 import requests
+from streamlit_gsheets import GSheetsConnection
 
 # --- 1. AYARLAR & TASARIM ---
-st.set_page_config(page_title="Kitap Barkod Tarayıcı", page_icon="📚", layout="centered")
+st.set_page_config(page_title="Pro Kitaplık", page_icon="📚", layout="centered")
 
 st.markdown("""
     <style>
-    .stButton>button { width: 100%; border-radius: 12px; background-color: #28a745; color: white; height: 3.5em; font-weight: bold; }
-    .isbn-box { background-color: #f0f2f6; padding: 20px; border-radius: 15px; border: 2px dashed #28a745; text-align: center; }
-    .book-card { background: white; padding: 15px; border-radius: 15px; shadow: 0 4px 12px rgba(0,0,0,0.1); border-left: 6px solid #28a745; margin-bottom: 15px; }
+    .stButton>button { width: 100%; border-radius: 12px; background-color: #007bff; color: white; height: 3.5em; font-weight: bold; }
+    .book-card { background: white; padding: 15px; border-radius: 15px; border-left: 6px solid #007bff; box-shadow: 0 4px 10px rgba(0,0,0,0.1); margin-bottom: 10px; }
+    #barcode-scanner { width: 100%; border-radius: 15px; overflow: hidden; border: 2px solid #007bff; }
     </style>
     """, unsafe_allow_html=True)
 
 if 'koleksiyon' not in st.session_state: st.session_state.koleksiyon = []
+if 'ara_sonuclar' not in st.session_state: st.session_state.ara_sonuclar = []
 
-# --- 2. BARKOD / ISBN ARAMA MOTORU ---
-def isbn_sorgula(kod):
-    # ISBN numaralarındaki tireleri kaldır
-    temiz_kod = kod.replace("-", "").replace(" ", "")
-    url = f"https://www.googleapis.com/books/v1/volumes?q=isbn:{temiz_kod}"
+# --- 2. BARKOD & İSİM SORGULAMA MOTORU ---
+def kitap_ara_hibrit(q, mod="text"):
+    results = []
+    # Eğer barkod ise (ISBN), aramayı daralt; değilse genel ara
+    prefix = "isbn:" if mod == "isbn" else ""
+    url = f"https://www.googleapis.com/books/v1/volumes?q={prefix}{q.replace(' ', '+')}&maxResults=10"
     
     try:
         res = requests.get(url, timeout=10).json()
         if "items" in res:
-            info = res["items"][0]["volumeInfo"]
-            img = info.get("imageLinks", {}).get("thumbnail", "").replace("http://", "https://")
-            return {
-                "ad": info.get("title", "Bilinmiyor"),
-                "yazar": info.get("authors", ["Bilinmiyor"])[0],
-                "kapak": img if img else "https://via.placeholder.com/150x220?text=Kapak+Yok"
-            }
-    except:
-        return None
-    return None
+            for item in res["items"]:
+                inf = item.get("volumeInfo", {})
+                img = inf.get("imageLinks", {}).get("thumbnail", "").replace("http://", "https://")
+                results.append({
+                    "ad": inf.get("title", "Bilinmiyor"),
+                    "yazar": inf.get("authors", ["Bilinmiyor"])[0],
+                    "kapak": img if img else "https://via.placeholder.com/150x220?text=Kapak+Yok"
+                })
+    except: pass
+    return results
 
 # --- 3. ARAYÜZ ---
-st.title("📚 Kitap Barkod Sistemi")
+st.title("📚 Akıllı Kitap Takip Sistemi")
 
-tab1, tab2 = st.tabs(["🔍 Barkod Tara / Yaz", "📋 Kütüphanem"])
+tab1, tab2 = st.tabs(["🔍 Kitap Ekle", "📋 Listem"])
 
 with tab1:
-    st.markdown('<div class="isbn-box">', unsafe_allow_html=True)
-    isbn_input = st.text_input("Kitabın arkasındaki 13 haneli ISBN numarasını yazın veya yapıştırın", placeholder="Örn: 9786053755456")
-    st.markdown('</div>', unsafe_allow_html=True)
-    
-    if st.button("Kitabı Barkoddan Bul"):
-        if isbn_input:
-            with st.spinner('Barkod sorgulanıyor...'):
-                kitap = isbn_sorgula(isbn_input)
-                if kitap:
-                    st.session_state.son_bulunan = kitap
-                else:
-                    st.error("Bu barkod ile eşleşen kitap bulunamadı. Lütfen numarayı kontrol edin.")
+    # --- BARKOD TARAMA ALANI ---
+    with st.expander("📷 Kamerayı Aç (Barkod Tara)", expanded=False):
+        st.write("Barkodu kameraya yaklaştırın...")
+        # JavaScript tabanlı barkod okuyucu bileşeni
+        st.components.v1.html("""
+            <div id="barcode-scanner"></div>
+            <script src="https://cdn.jsdelivr.net/npm/quagga@0.12.1/dist/quagga.min.js"></script>
+            <script>
+                Quagga.init({
+                    inputStream : { name : "Live", type : "LiveStream", target: document.querySelector('#barcode-scanner') },
+                    decoder : { readers : ["ean_reader", "ean_8_reader"] }
+                }, function(err) {
+                    if (err) { console.log(err); return }
+                    Quagga.start();
+                });
+                Quagga.onDetected(function(data) {
+                    const code = data.codeResult.code;
+                    // Streamlit'e kodu gönder
+                    window.parent.postMessage({type: 'barcode', value: code}, '*');
+                });
+            </script>
+        """, height=300)
+        st.info("Kamera açılmazsa, aşağıdaki kutuya barkod numarasını elle girebilirsiniz.")
 
-    # Kitap Bulunduysa Göster
-    if 'son_bulunan' in st.session_state:
-        k = st.session_state.son_bulunan
+    # --- MANUEL ARAMA ALANI ---
+    col1, col2 = st.columns([2, 1])
+    with col1:
+        search_val = st.text_input("Kitap Adı, Yazar veya Barkod", placeholder="Örn: Radley Ailesi veya 978...")
+    with col2:
+        search_mode = st.selectbox("Tür", ["İsim/Yazar", "Barkod (ISBN)"])
+
+    if st.button("Hemen Bul"):
+        if search_val:
+            mod = "isbn" if search_mode == "Barkod (ISBN)" else "text"
+            with st.spinner('Kitap aranıyor...'):
+                st.session_state.ara_sonuclar = kitap_ara_hibrit(search_val, mod)
+
+    # Arama Sonuçlarını Göster
+    if st.session_state.ara_sonuclar:
         st.divider()
-        c1, c2 = st.columns([1, 2])
-        with c1:
-            st.image(k['kapak'], use_container_width=True)
-        with c2:
-            st.subheader(k['ad'])
-            st.write(f"✍️ **Yazar:** {k['yazar']}")
-            durum = st.selectbox("Durum", ["Okuyacağım", "Okuyorum", "Okudum"])
-            if st.button("Kütüphaneme Ekle"):
-                st.session_state.koleksiyon.append({**k, "durum": durum})
-                st.success("Kitap başarıyla eklendi!")
-                del st.session_state.son_bulunan # Ekrandan temizle
+        for i, k in enumerate(st.session_state.ara_sonuclar):
+            with st.container():
+                c1, c2 = st.columns([1, 2])
+                with c1: st.image(k['kapak'], use_container_width=True)
+                with c2:
+                    st.markdown(f"**{k['ad']}**")
+                    st.caption(f"✍️ {k['yazar']}")
+                    d = st.selectbox("Durum", ["Okuyacağım", "Okuyorum", "Okudum"], key=f"sel_{i}")
+                    if st.button("Listeye Ekle", key=f"btn_{i}"):
+                        st.session_state.koleksiyon.append({**k, "durum": d})
+                        st.success("Eklendi!")
+            st.divider()
 
 with tab2:
     if not st.session_state.koleksiyon:
-        st.info("Kütüphaneniz henüz boş.")
+        st.info("Kütüphaneniz boş.")
     else:
         for idx, ktp in enumerate(reversed(st.session_state.koleksiyon)):
             col1, col2, col3 = st.columns([1, 3, 1])
-            with col1: st.image(ktp['kapak'], width=80)
+            with col1: st.image(ktp['kapak'], width=70)
             with col2:
-                st.markdown(f"**{ktp['ad']}**")
-                st.caption(f"{ktp['yazar']} | {ktp['durum']}")
+                renk = "#28a745" if ktp['durum'] == "Okudum" else "#ffc107"
+                st.markdown(f'<div class="book-card"><b>{ktp["ad"]}</b><br>{ktp["yazar"]}<br><span style="color:{renk};">● {ktp["durum"]}</span></div>', unsafe_allow_html=True)
             with col3:
-                if st.button("Sil", key=f"del_{idx}"):
-                    pos = len(st.session_state.koleksiyon) - 1 - idx
-                    st.session_state.koleksiyon.pop(pos)
+                if st.button("🗑️", key=f"del_{idx}"):
+                    st.session_state.koleksiyon.pop(len(st.session_state.koleksiyon)-1-idx)
                     st.rerun()
