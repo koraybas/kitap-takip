@@ -1,9 +1,8 @@
 import streamlit as st
 import requests
-from streamlit_gsheets import GSheetsConnection
 
 # --- 1. AYARLAR & TASARIM ---
-st.set_page_config(page_title="Pro Kitaplık", page_icon="📚", layout="centered")
+st.set_page_config(page_title="Koray'ın Kitaplığı", page_icon="📚", layout="centered")
 
 st.markdown("""
     <style>
@@ -16,15 +15,15 @@ st.markdown("""
 if 'koleksiyon' not in st.session_state: st.session_state.koleksiyon = []
 if 'ara_sonuclar' not in st.session_state: st.session_state.ara_sonuclar = []
 
-# --- 2. BARKOD & İSİM SORGULAMA MOTORU ---
-def kitap_ara_hibrit(q, mod="text"):
+# --- 2. HİBRİT ARAMA MOTORU ---
+def kitap_ara(q, mod="text"):
     results = []
-    # Eğer barkod ise (ISBN), aramayı daralt; değilse genel ara
     prefix = "isbn:" if mod == "isbn" else ""
-    url = f"https://www.googleapis.com/books/v1/volumes?q={prefix}{q.replace(' ', '+')}&maxResults=10"
+    url = f"https://www.googleapis.com/books/v1/volumes?q={prefix}{q.replace(' ', '+')}&maxResults=15"
     
     try:
-        res = requests.get(url, timeout=10).json()
+        headers = {"User-Agent": "Mozilla/5.0"}
+        res = requests.get(url, headers=headers, timeout=10).json()
         if "items" in res:
             for item in res["items"]:
                 inf = item.get("volumeInfo", {})
@@ -40,47 +39,24 @@ def kitap_ara_hibrit(q, mod="text"):
 # --- 3. ARAYÜZ ---
 st.title("📚 Akıllı Kitap Takip Sistemi")
 
-tab1, tab2 = st.tabs(["🔍 Kitap Ekle", "📋 Listem"])
+tab1, tab2 = st.tabs(["🔍 Kitap Bul & Ekle", "📋 Listem"])
 
 with tab1:
-    # --- BARKOD TARAMA ALANI ---
-    with st.expander("📷 Kamerayı Aç (Barkod Tara)", expanded=False):
-        st.write("Barkodu kameraya yaklaştırın...")
-        # JavaScript tabanlı barkod okuyucu bileşeni
-        st.components.v1.html("""
-            <div id="barcode-scanner"></div>
-            <script src="https://cdn.jsdelivr.net/npm/quagga@0.12.1/dist/quagga.min.js"></script>
-            <script>
-                Quagga.init({
-                    inputStream : { name : "Live", type : "LiveStream", target: document.querySelector('#barcode-scanner') },
-                    decoder : { readers : ["ean_reader", "ean_8_reader"] }
-                }, function(err) {
-                    if (err) { console.log(err); return }
-                    Quagga.start();
-                });
-                Quagga.onDetected(function(data) {
-                    const code = data.codeResult.code;
-                    // Streamlit'e kodu gönder
-                    window.parent.postMessage({type: 'barcode', value: code}, '*');
-                });
-            </script>
-        """, height=300)
-        st.info("Kamera açılmazsa, aşağıdaki kutuya barkod numarasını elle girebilirsiniz.")
+    # --- BARKOD & İSİM GİRİŞİ ---
+    search_val = st.text_input("Kitap Adı, Yazar veya Barkod Yazın", placeholder="Örn: Radley Ailesi veya 978...")
+    
+    col_a, col_b = st.columns(2)
+    with col_a:
+        search_mode = st.selectbox("Arama Türü", ["İsim/Yazar", "Barkod (ISBN)"])
+    with col_b:
+        search_btn = st.button("Sistemde Bul")
 
-    # --- MANUEL ARAMA ALANI ---
-    col1, col2 = st.columns([2, 1])
-    with col1:
-        search_val = st.text_input("Kitap Adı, Yazar veya Barkod", placeholder="Örn: Radley Ailesi veya 978...")
-    with col2:
-        search_mode = st.selectbox("Tür", ["İsim/Yazar", "Barkod (ISBN)"])
+    if search_btn and search_val:
+        mod = "isbn" if search_mode == "Barkod (ISBN)" else "text"
+        with st.spinner('Kitap aranıyor...'):
+            st.session_state.ara_sonuclar = kitap_ara(search_val, mod)
 
-    if st.button("Hemen Bul"):
-        if search_val:
-            mod = "isbn" if search_mode == "Barkod (ISBN)" else "text"
-            with st.spinner('Kitap aranıyor...'):
-                st.session_state.ara_sonuclar = kitap_ara_hibrit(search_val, mod)
-
-    # Arama Sonuçlarını Göster
+    # Sonuçlar
     if st.session_state.ara_sonuclar:
         st.divider()
         for i, k in enumerate(st.session_state.ara_sonuclar):
@@ -90,15 +66,14 @@ with tab1:
                 with c2:
                     st.markdown(f"**{k['ad']}**")
                     st.caption(f"✍️ {k['yazar']}")
-                    d = st.selectbox("Durum", ["Okuyacağım", "Okuyorum", "Okudum"], key=f"sel_{i}")
-                    if st.button("Listeye Ekle", key=f"btn_{i}"):
+                    d = st.selectbox("Okuma Durumu", ["Okuyacağım", "Okuyorum", "Okudum"], key=f"sel_{i}")
+                    if st.button("Kütüphaneye Ekle", key=f"btn_{i}"):
                         st.session_state.koleksiyon.append({**k, "durum": d})
-                        st.success("Eklendi!")
-            st.divider()
+                        st.success("Listeye Eklendi!")
 
 with tab2:
     if not st.session_state.koleksiyon:
-        st.info("Kütüphaneniz boş.")
+        st.info("Kütüphaneniz şu an boş.")
     else:
         for idx, ktp in enumerate(reversed(st.session_state.koleksiyon)):
             col1, col2, col3 = st.columns([1, 3, 1])
@@ -107,6 +82,6 @@ with tab2:
                 renk = "#28a745" if ktp['durum'] == "Okudum" else "#ffc107"
                 st.markdown(f'<div class="book-card"><b>{ktp["ad"]}</b><br>{ktp["yazar"]}<br><span style="color:{renk};">● {ktp["durum"]}</span></div>', unsafe_allow_html=True)
             with col3:
-                if st.button("🗑️", key=f"del_{idx}"):
+                if st.button("Sil", key=f"del_{idx}"):
                     st.session_state.koleksiyon.pop(len(st.session_state.koleksiyon)-1-idx)
                     st.rerun()
