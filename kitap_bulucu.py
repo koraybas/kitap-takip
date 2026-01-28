@@ -1,7 +1,7 @@
 import streamlit as st
 import requests
 
-# --- 1. TASARIM (Sizin Stiliniz) ---
+# --- 1. TASARIM & AYARLAR ---
 st.set_page_config(page_title="Koray'ın Kitaplığı", page_icon="📚", layout="centered")
 
 st.markdown("""
@@ -14,23 +14,26 @@ st.markdown("""
 if 'liste' not in st.session_state: st.session_state.liste = []
 if 'ara_sonuc' not in st.session_state: st.session_state.ara_sonuc = []
 
-# --- 2. ÇİFT KANAL ARAMA MOTORU (Open Library + Google) ---
+# --- 2. ÇİFT KANAL ARAMA MOTORU (Türkiye Odaklı) ---
 def kitap_ara_super(sorgu):
     results = []
     q = sorgu.replace(' ', '+')
     
-    # KANAL 1: Google Books (Güncel ve Türkiye odaklı kitaplar için)
+    # KANAL 1: Google Books (Türkiye Marketini Zorla)
     try:
-        # Kendimizi gerçek bir tarayıcı gibi tanıtıyoruz
-        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/91.0.4472.124"}
-        g_url = f"https://www.googleapis.com/books/v1/volumes?q={q}&maxResults=10&orderBy=relevance"
-        g_res = requests.get(g_url, headers=headers, timeout=10).json()
+        # User-Agent ekleyerek Google'ın bizi "bot" sanmasını engelliyoruz
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+        # country=TR ekleyerek Türkiye baskılarını (Radley Ailesi gibi) öne çıkarıyoruz
+        g_url = f"https://www.googleapis.com/books/v1/volumes?q={q}&maxResults=15&country=TR&orderBy=relevance"
+        res = requests.get(g_url, headers=headers, timeout=10).json()
         
-        if "items" in g_res:
-            for item in g_res["items"]:
+        if "items" in res:
+            for item in res["items"]:
                 inf = item.get("volumeInfo", {})
-                img = inf.get("imageLinks", {}).get("thumbnail", "").replace("http://", "https://")
+                img_links = inf.get("imageLinks", {})
+                img = img_links.get("thumbnail") or img_links.get("smallThumbnail")
                 if img:
+                    img = img.replace("http://", "https://")
                     results.append({
                         "isim": inf.get("title", "Bilinmiyor"),
                         "yazar": inf.get("authors", ["Bilinmiyor"])[0],
@@ -38,8 +41,8 @@ def kitap_ara_super(sorgu):
                     })
     except: pass
 
-    # KANAL 2: Open Library (Klasikler ve Global kitaplar için - Eğer Google'dan sonuç gelmezse veya azsa)
-    if len(results) < 3:
+    # KANAL 2: Open Library (Yedek Kanal)
+    if not results:
         try:
             ol_url = f"https://openlibrary.org/search.json?q={q}&limit=10"
             ol_res = requests.get(ol_url, timeout=10).json()
@@ -56,7 +59,7 @@ def kitap_ara_super(sorgu):
     return results
 
 # --- 3. ARAYÜZ ---
-st.title("📚 Akıllı Kitap Takip")
+st.title("📚 Koray'ın Akıllı Kitaplığı")
 tab1, tab2 = st.tabs(["🔍 Kitap Bul", "📋 Okuma Listem"])
 
 with tab1:
@@ -66,8 +69,9 @@ with tab1:
             with st.spinner('Tüm dünya kütüphaneleri taranıyor...'):
                 st.session_state.ara_sonuc = kitap_ara_super(s)
     
-    if st.session_state.ara_sonuclar := st.session_state.ara_sonuc:
-        for i, k in enumerate(st.session_state.ara_sonuclar):
+    # HATA DÜZELTİLDİ: := operatörü yerine standart kontrol
+    if st.session_state.ara_sonuc:
+        for i, k in enumerate(st.session_state.ara_sonuc):
             with st.container():
                 c1, c2 = st.columns([1, 2])
                 with c1: st.image(k['kapak'], use_container_width=True)
@@ -85,7 +89,15 @@ with tab2:
     else:
         for idx, v in enumerate(reversed(st.session_state.liste)):
             with st.container():
-                st.markdown(f"""<div class="book-card"><h3>📖 {v['isim']}</h3><p>👤 {v['yazar']}</p><b>• {v['durum']}</b></div>""", unsafe_allow_html=True)
+                st.markdown(f"""
+                <div class="book-card">
+                    <h3>📖 {v['isim']}</h3>
+                    <p>👤 {v['yazar']}</p>
+                    <b>• {v['durum']}</b>
+                </div>
+                """, unsafe_allow_html=True)
                 if st.button("🗑️ Sil", key=f"sil_{idx}"):
-                    st.session_state.liste.pop(len(st.session_state.liste) - 1 - idx)
+                    # Tersten dizdiğimiz için silme indeksini ayarlıyoruz
+                    pos = len(st.session_state.liste) - 1 - idx
+                    st.session_state.liste.pop(pos)
                     st.rerun()
